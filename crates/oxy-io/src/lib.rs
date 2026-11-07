@@ -5,11 +5,17 @@
 //! * [`makehuman`] — builds a [`CharacterAsset`] from the CC0 MakeHuman data set.
 //! * [`bundle`]    — our own compact binary container for a [`CharacterAsset`].
 //! * [`gltf`]      — glTF 2.0 binary (`.glb`) export.
+//! * [`oxb`]       — OxyBrush project files (`.oxb`), read and write.
+//! * [`oxybrush`]  — the OxyBrush bridge: send a character, bring sculpts back.
+
+pub use glam;
 
 pub mod bundle;
 pub mod gltf;
 pub mod makehuman;
 pub mod obj;
+pub mod oxb;
+pub mod oxybrush;
 pub mod target;
 
 use oxy_mesh::MorphableMesh;
@@ -48,4 +54,20 @@ pub struct CharacterAsset {
     pub meta: AssetMeta,
     pub mesh: MorphableMesh,
     pub catalog: Catalog,
+}
+
+impl CharacterAsset {
+    /// Evaluate the body for `params`, shifted so its lowest point is at y = 0.
+    /// Returns the positions and the vertical offset that was added.
+    pub fn evaluate_grounded(&self, params: &oxy_morph::Params) -> (Vec<glam::Vec3>, f32) {
+        let (dense, _) = oxy_morph::resolve(&self.mesh, &self.catalog.evaluate(params));
+        let mut pos = self.mesh.evaluate(&dense);
+        let offset = -pos.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        pos.iter_mut().for_each(|p| p.y += offset);
+        (pos, offset)
+    }
+
+    pub fn triangles(&self) -> Vec<[u32; 3]> {
+        self.mesh.base.triangles().collect()
+    }
 }

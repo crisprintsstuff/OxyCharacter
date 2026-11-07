@@ -160,6 +160,14 @@ Each milestone ends with something demoable and tested.
 - Asset bootstrap with CC0 base mesh via `tools/fetch-assets.sh`.
 - Known M1 limits: body mesh only (no eyes/teeth/eyelashes yet), no UVs/textures, static export.
 
+### M1.5 — OxyBrush bridge ✅ *implemented*
+- Native `.oxb` read/write (independent implementation of OxyBrush's documented format).
+- "Send to OxyBrush" + file watch: a reshaped body returns as a custom morph slider,
+  new pieces return as accessories; drag-and-drop import; morphs persisted in `user/morphs/`.
+- Topology correspondence (`oxy_mesh::correspond`) because OxyBrush reorders vertices on load.
+- Next: transfer detail above the base resolution (normal/displacement maps, M4), fit accessories
+  to body changes (M5), and an optional "Send to OxyCharacter" button on the OxyBrush side.
+
 ### M2 — Rigged & exportable (weeks 4–6)
 - Joint anchors authored for the base mesh; refit on every slider change.
 - Skin weights, skinning in the viewport, a T/A-pose toggle and a few test poses.

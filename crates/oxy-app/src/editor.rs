@@ -8,7 +8,7 @@ use oxy_mesh::WEIGHT_EPSILON;
 use oxy_morph::{ParamDef, Params};
 
 /// Preferred top-level category order in the morph tree.
-const TOP_ORDER: &[&str] = &["Body", "Head", "Limbs", "Asymmetry"];
+const TOP_ORDER: &[&str] = &["Body", "Head", "Limbs", "Custom", "Asymmetry"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Category {
@@ -38,30 +38,40 @@ pub struct Editor {
     pub highlight_dirty: bool,
     pub active_targets: usize,
     pub rng: u64,
+    pub bridge: crate::bridge::Bridge,
+    pub accessories: Vec<crate::bridge::AccessoryItem>,
+    /// Set when accessory meshes must be re-spawned.
+    pub accessories_dirty: bool,
+}
+
+/// Category tree for a catalog, in the preferred top-level order.
+pub fn categories_of(catalog: &oxy_morph::Catalog) -> Vec<Category> {
+    let mut tops: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for p in &catalog.params {
+        let (top, sub) = split_group(p);
+        let subs = tops.entry(top).or_default();
+        if !subs.contains(&sub) {
+            subs.push(sub);
+        }
+    }
+    let rank = |t: &str| {
+        TOP_ORDER
+            .iter()
+            .position(|o| *o == t)
+            .unwrap_or(TOP_ORDER.len())
+    };
+    let mut categories: Vec<Category> = tops
+        .into_iter()
+        .map(|(top, subs)| Category { top, subs })
+        .collect();
+    categories.sort_by_key(|c| rank(&c.top));
+    categories
 }
 
 impl Editor {
-    pub fn new(asset: CharacterAsset) -> Self {
+    pub fn new(asset: CharacterAsset, user_dir: &std::path::Path) -> Self {
         let params = asset.catalog.defaults();
-        let mut tops: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for p in &asset.catalog.params {
-            let (top, sub) = split_group(p);
-            let subs = tops.entry(top).or_default();
-            if !subs.contains(&sub) {
-                subs.push(sub);
-            }
-        }
-        let rank = |t: &str| {
-            TOP_ORDER
-                .iter()
-                .position(|o| *o == t)
-                .unwrap_or(TOP_ORDER.len())
-        };
-        let mut categories: Vec<Category> = tops
-            .into_iter()
-            .map(|(top, subs)| Category { top, subs })
-            .collect();
-        categories.sort_by_key(|c| rank(&c.top));
+        let categories = categories_of(&asset.catalog);
         let selected = categories
             .first()
             .map(|c| (c.top.clone(), c.subs[0].clone()))
@@ -82,6 +92,9 @@ impl Editor {
             highlight_dirty: true,
             active_targets: 0,
             rng: 0x9E37_79B9_7F4A_7C15,
+            bridge: crate::bridge::Bridge::new(user_dir),
+            accessories: Vec::new(),
+            accessories_dirty: false,
         }
     }
 

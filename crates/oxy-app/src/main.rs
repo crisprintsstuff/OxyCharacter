@@ -3,9 +3,11 @@
 //! ```text
 //! oxycharacter [--bundle PATH] [--set id=value ...] [--select "Top/Sub"]
 //!              [--hover PARAM_ID] [--head] [--size WxH]
+//!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
+mod bridge;
 mod editor;
 mod scene;
 mod ui;
@@ -38,6 +40,9 @@ struct Args {
     size: (u32, u32),
     screenshot: Option<PathBuf>,
     frames: u32,
+    import_oxb: Option<PathBuf>,
+    apply_import: bool,
+    send_oxybrush: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -70,7 +75,10 @@ fn parse_args() -> Result<Args, String> {
             }
             "--screenshot" => a.screenshot = Some(val()?.into()),
             "--frames" => a.frames = val()?.parse().map_err(|_| "bad frame count")?,
-            "-h" | "--help" => return Err("see crate docs: oxycharacter [--bundle PATH] [--set id=v] [--select Top/Sub] [--hover ID] [--head] [--size WxH] [--screenshot out.png [--frames N]]".into()),
+            "--import-oxb" => a.import_oxb = Some(val()?.into()),
+            "--apply-import" => a.apply_import = true,
+            "--send-oxybrush" => a.send_oxybrush = true,
+            "-h" | "--help" => return Err("see crate docs: oxycharacter [--bundle PATH] [--set id=v] [--select Top/Sub] [--hover ID] [--head] [--size WxH] [--import-oxb FILE [--apply-import]] [--screenshot out.png [--frames N]]".into()),
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -119,33 +127,66 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
         return;
     }
     let ed = &mut *editor;
-    let weights = ed.asset.catalog.evaluate(&ed.params);
-    let (dense, _) = oxy_morph::resolve(&ed.asset.mesh, &weights);
-    let mut pos = ed.asset.mesh.evaluate(&dense);
-    let (lo, _) = oxy_io::makehuman::bounds(&pos);
-    pos.iter_mut().for_each(|p| p.y -= lo.y);
+    let (pos, _) = ed.asset.evaluate_grounded(&ed.params);
     let normals = ed.asset.mesh.base.compute_normals(&pos);
+    let [r, g, b] = ed.skin;
+    let mut meshes = vec![oxy_io::gltf::ExportMesh {
+        name: "character",
+        positions: &pos,
+        normals: &normals,
+        indices: &ed.asset.mesh.base.indices,
+        base_color: [r, g, b, 1.0],
+        colors: None,
+    }];
+    // Accessory buffers must outlive the export call.
+    struct Extra<'a> {
+        acc: &'a oxy_io::oxybrush::Accessory,
+        indices: Vec<u32>,
+        normals: Vec<oxy_io::glam::Vec3>,
+        colors: Option<Vec<[f32; 4]>>,
+    }
+    let extra: Vec<Extra> = ed
+        .accessories
+        .iter()
+        .filter(|a| a.visible)
+        .filter_map(|a| {
+            let indices: Vec<u32> = a.acc.triangles.iter().flatten().copied().collect();
+            let m = oxy_mesh::Mesh::new(a.acc.positions.clone(), indices.clone()).ok()?;
+            Some(Extra {
+                acc: &a.acc,
+                normals: m.compute_normals(&a.acc.positions),
+                colors: scene::accessory_colors(&a.acc),
+                indices,
+            })
+        })
+        .collect();
+    for x in &extra {
+        let [r, g, b] = if x.colors.is_some() {
+            [1.0; 3]
+        } else {
+            scene::ACCESSORY_CLAY
+        };
+        meshes.push(oxy_io::gltf::ExportMesh {
+            name: &x.acc.name,
+            positions: &x.acc.positions,
+            normals: &x.normals,
+            indices: &x.indices,
+            base_color: [r, g, b, 1.0],
+            colors: x.colors.as_deref(),
+        });
+    }
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let path = PathBuf::from(format!("exports/character-{stamp}.glb"));
     let result = std::fs::create_dir_all("exports")
         .map_err(oxy_io::IoError::from)
-        .and_then(|_| {
-            let [r, g, b] = ed.skin;
-            let mesh = oxy_io::gltf::ExportMesh {
-                name: "character",
-                positions: &pos,
-                normals: &normals,
-                indices: &ed.asset.mesh.base.indices,
-                base_color: [r, g, b, 1.0],
-            };
-            oxy_io::gltf::write_glb(&mesh, BufWriter::new(File::create(&path)?))
-        });
-    ed.status = match result {
-        Ok(()) => format!("Exported {}", path.display()),
+        .and_then(|_| oxy_io::gltf::write_glb_scene(&meshes, BufWriter::new(File::create(&path)?)));
+    let msg = match result {
+        Ok(()) => format!("Exported {} ({} mesh(es))", path.display(), meshes.len()),
         Err(e) => format!("Export failed: {e}"),
     };
+    ed.status = msg;
 }
 
 fn main() -> ExitCode {
@@ -173,7 +214,10 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut editor = Editor::new(asset);
+    let user_dir =
+        std::env::var_os("OXY_USER_DIR").map_or_else(|| PathBuf::from("user"), PathBuf::from);
+    let mut editor = Editor::new(asset, &user_dir);
+    editor.load_custom_morphs();
     for (k, v) in &args.sets {
         if editor.asset.catalog.param(k).is_none() {
             eprintln!("unknown param {k}");
@@ -185,6 +229,25 @@ fn main() -> ExitCode {
         editor.selected = sel;
     }
     editor.pinned_hover = args.hover.clone();
+    if args.send_oxybrush {
+        // Scripted runs never start other programs.
+        editor.bridge.launch = false;
+        editor.send_to_oxybrush();
+        println!(
+            "sent {}",
+            editor
+                .bridge
+                .watched
+                .as_ref()
+                .map_or_else(String::new, |w| w.0.display().to_string())
+        );
+    }
+    if let Some(p) = &args.import_oxb {
+        editor.open_oxb(p);
+        if args.apply_import {
+            editor.apply_pending();
+        }
+    }
 
     App::new()
         .insert_resource(ClearColor(Color::srgb(0.085, 0.09, 0.1)))
@@ -216,6 +279,9 @@ fn main() -> ExitCode {
                 scene::update_character,
                 scene::apply_camera,
                 export,
+                bridge::watch,
+                bridge::file_drop,
+                scene::sync_accessories,
                 automation,
             )
                 .chain(),

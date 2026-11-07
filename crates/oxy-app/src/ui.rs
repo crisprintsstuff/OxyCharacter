@@ -28,6 +28,7 @@ pub enum LeftTab {
     #[default]
     Presets,
     Skin,
+    Accessories,
 }
 
 fn style(ctx: &egui::Context) {
@@ -95,6 +96,13 @@ pub fn ui_system(
                 ui.label(RichText::new("OxyCharacter").strong().color(ACCENT));
                 ui.separator();
                 egui::containers::menu::MenuButton::new("File").ui(ui, |ui| {
+                    if ui.button("Send to OxyBrush").clicked() {
+                        ed.send_to_oxybrush();
+                    }
+                    if ui.button("Import OxyBrush file (.oxb)…").clicked() {
+                        ed.bridge.open_dialog = true;
+                    }
+                    ui.separator();
                     if ui.button("Export glTF (.glb)").clicked() {
                         state.export_requested = true;
                     }
@@ -154,6 +162,19 @@ pub fn ui_system(
                 if tool(ui, "⬇ Export", "Export the current character as .glb").clicked() {
                     state.export_requested = true;
                 }
+                ui.separator();
+                if tool(
+                    ui,
+                    "Send to OxyBrush",
+                    "Send the character to OxyBrush. Save there (Ctrl+S): a reshaped body comes back as a morph slider, new pieces as accessories.",
+                )
+                .clicked()
+                {
+                    ed.send_to_oxybrush();
+                }
+                if tool(ui, "Import .oxb", "Import an OxyBrush project (or drop an .oxb file on the window)").clicked() {
+                    ed.bridge.open_dialog = true;
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     for (label, enabled) in [("Pose", false), ("Material", false), ("Morph", true)]
                     {
@@ -168,16 +189,21 @@ pub fn ui_system(
     egui::Panel::bottom("status")
         .frame(Frame::NONE.fill(BG).inner_margin(Margin::symmetric(8, 3)))
         .show(&mut root, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(&ed.status).color(TEXT_DIM));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "Base mesh: {} · {}",
-                            ed.asset.meta.name, ed.asset.meta.license
-                        ))
-                        .color(TEXT_DIM),
-                    );
+            // Right-aligned license first, so the status message truncates into the remaining space.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "Base mesh: {} · {}",
+                        ed.asset.meta.name, ed.asset.meta.license
+                    ))
+                    .color(TEXT_DIM),
+                );
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if let Some((p, _)) = &ed.bridge.watched {
+                        ui.label(RichText::new("Linked to OxyBrush").color(ACCENT))
+                            .on_hover_text(format!("Watching {} for OxyBrush saves", p.display()));
+                    }
+                    ui.add(egui::Label::new(RichText::new(&ed.status).color(TEXT_DIM)).truncate());
                 });
             });
         });
@@ -194,6 +220,16 @@ pub fn ui_system(
                 ui.add_space(6.0);
                 ui.selectable_value(&mut state.left_tab, LeftTab::Presets, "Body Presets");
                 ui.selectable_value(&mut state.left_tab, LeftTab::Skin, "Skin");
+                let n = ed.accessories.len();
+                ui.selectable_value(
+                    &mut state.left_tab,
+                    LeftTab::Accessories,
+                    if n > 0 {
+                        format!("Accessories ({n})")
+                    } else {
+                        "Accessories".into()
+                    },
+                );
             });
             ui.separator();
             egui::ScrollArea::vertical()
@@ -203,6 +239,7 @@ pub fn ui_system(
                     match state.left_tab {
                         LeftTab::Presets => presets_tab(ui, ed, &mut state.preset_filter),
                         LeftTab::Skin => skin_tab(ui, ed),
+                        LeftTab::Accessories => accessories_tab(ui, ed),
                     }
                 });
         });
@@ -249,6 +286,8 @@ pub fn ui_system(
     let r = central.response.rect;
     rect_res.min = bevy::math::Vec2::new(r.min.x, r.min.y);
     rect_res.max = bevy::math::Vec2::new(r.max.x, r.max.y);
+
+    bridge_windows(&ctx, ed);
 
     state.pointer_busy = ctx.egui_is_using_pointer();
     if ed.hovered.is_none() {
@@ -561,6 +600,14 @@ fn slider_row(ui: &mut egui::Ui, ed: &mut Editor, p: &oxy_morph::ParamDef, show_
             });
             ui.label(txt);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if p.id.starts_with(crate::bridge::CUSTOM_PREFIX)
+                    && ui
+                        .add(egui::Button::new("🗑").small())
+                        .on_hover_text("Delete this sculpted morph")
+                        .clicked()
+                {
+                    ed.delete_custom_morph(&p.id);
+                }
                 let reset = ui
                     .add_enabled(modified, egui::Button::new("↺").small())
                     .on_hover_text("Reset");
@@ -600,5 +647,163 @@ fn slider_row(ui: &mut egui::Ui, ed: &mut Editor, p: &oxy_morph::ParamDef, show_
     ui.add_space(3.0);
     if row.inner || row.response.contains_pointer() {
         ed.hovered = Some(p.id.clone());
+    }
+}
+
+fn accessories_tab(ui: &mut egui::Ui, ed: &mut Editor) {
+    Frame::NONE.inner_margin(Margin::symmetric(8, 2)).show(ui, |ui| {
+        if ed.accessories.is_empty() {
+            ui.label(RichText::new("No accessories yet.").color(TEXT_DIM));
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Model props, hair or clothing in OxyBrush as new pieces, then save: they arrive here. They don't follow body changes yet (fitting comes in M5).")
+                    .color(TEXT_DIM)
+                    .size(11.5),
+            );
+            return;
+        }
+        let mut remove = None;
+        for (i, a) in ed.accessories.iter_mut().enumerate() {
+            Frame::NONE.fill(BG).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(6)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut a.visible, "").on_hover_text("Show / hide").changed() {
+                        ed.accessories_dirty = true;
+                    }
+                    ui.label(RichText::new(&a.acc.name).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("🗑").on_hover_text("Remove").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                });
+                ui.label(RichText::new(format!("{} triangles{}", a.acc.triangles.len(), if a.acc.color.is_empty() { "" } else { " · painted" })).size(11.0).color(TEXT_DIM));
+            });
+            ui.add_space(4.0);
+        }
+        if let Some(i) = remove {
+            let a = ed.accessories.remove(i);
+            ed.status = format!("Removed accessory “{}”", a.acc.name);
+            ed.accessories_dirty = true;
+        }
+    });
+}
+
+fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
+    if ed.bridge.open_dialog {
+        let mut open = true;
+        let mut go = false;
+        egui::Window::new("Import OxyBrush file")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Path to an OxyBrush project (.oxb):");
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut ed.bridge.path_input)
+                        .desired_width(420.0)
+                        .hint_text("/path/to/sculpt.oxb"),
+                );
+                go = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.label(
+                    RichText::new("Tip: you can also drop an .oxb file onto the window.")
+                        .size(11.0)
+                        .color(TEXT_DIM),
+                );
+                ui.horizontal(|ui| {
+                    go |= ui
+                        .add_enabled(
+                            !ed.bridge.path_input.trim().is_empty(),
+                            egui::Button::new("Open"),
+                        )
+                        .clicked();
+                });
+            });
+        if go {
+            let p = std::path::PathBuf::from(ed.bridge.path_input.trim());
+            ed.open_oxb(&p);
+            open = false;
+        }
+        ed.bridge.open_dialog = open;
+    }
+
+    let Some(pending) = ed.bridge.pending.as_mut() else {
+        return;
+    };
+    let mut apply = false;
+    let mut cancel = false;
+    egui::Window::new("Import from OxyBrush")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+        .show(ctx, |ui| {
+            ui.label(
+                RichText::new(pending.path.display().to_string())
+                    .size(11.0)
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(4.0);
+            egui::Grid::new("pending")
+                .num_columns(3)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    for it in &mut pending.items {
+                        ui.checkbox(&mut it.include, "");
+                        let (kind, detail) = match &it.item {
+                            oxy_io::oxybrush::Imported::Morph {
+                                indices,
+                                max_displacement,
+                                ..
+                            } => (
+                                RichText::new("Morph").color(ACCENT).strong(),
+                                format!(
+                                    "{} vertices moved, up to {:.1} mm",
+                                    indices.len(),
+                                    max_displacement * 1000.0
+                                ),
+                            ),
+                            oxy_io::oxybrush::Imported::Accessory(a) => (
+                                RichText::new("Accessory")
+                                    .color(Color32::from_rgb(220, 170, 80))
+                                    .strong(),
+                                format!("{} triangles", a.triangles.len()),
+                            ),
+                            oxy_io::oxybrush::Imported::Unchanged { .. } => {
+                                (RichText::new("Body"), "unchanged".into())
+                            }
+                        };
+                        ui.label(kind);
+                        ui.vertical(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut it.name).desired_width(240.0));
+                            ui.label(RichText::new(detail).size(11.0).color(TEXT_DIM));
+                        });
+                        ui.end_row();
+                    }
+                });
+            for n in &pending.notes {
+                ui.add_space(2.0);
+                ui.label(RichText::new(format!("ⓘ {n}")).size(11.0).color(TEXT_DIM));
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                apply = ui
+                    .add_enabled(
+                        pending.items.iter().any(|i| i.include),
+                        egui::Button::new("Import"),
+                    )
+                    .clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+            ui.label(
+                RichText::new("Morphs become sliders under Custom › Sculpted.")
+                    .size(11.0)
+                    .color(TEXT_DIM),
+            );
+        });
+    if apply {
+        ed.apply_pending();
+    } else if cancel {
+        ed.bridge.pending = None;
+        ed.status = "Import cancelled".into();
     }
 }

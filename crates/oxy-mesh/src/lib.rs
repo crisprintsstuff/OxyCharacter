@@ -4,6 +4,8 @@
 //! Morph targets store just the vertices they move, so hundreds of targets
 //! stay cheap to keep in memory and to evaluate.
 
+pub mod correspond;
+
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 

@@ -303,3 +303,92 @@ pub fn apply_camera(
         ..default()
     });
 }
+
+#[derive(Component)]
+pub struct AccessoryMesh;
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Linear RGBA vertex colors for an accessory (white when unpainted).
+pub fn accessory_colors(a: &oxy_io::oxybrush::Accessory) -> Option<Vec<[f32; 4]>> {
+    (a.color.len() == a.positions.len() && !a.color.is_empty()).then(|| {
+        a.color
+            .iter()
+            .map(|c| {
+                [
+                    srgb_to_linear(c.x),
+                    srgb_to_linear(c.y),
+                    srgb_to_linear(c.z),
+                    1.0,
+                ]
+            })
+            .collect()
+    })
+}
+
+/// Clay color for unpainted accessories (linear).
+pub const ACCESSORY_CLAY: [f32; 3] = [0.42, 0.44, 0.48];
+
+/// Re-spawn accessory meshes after an import, delete or visibility change.
+pub fn sync_accessories(
+    mut commands: Commands,
+    mut editor: ResMut<Editor>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    existing: Query<Entity, With<AccessoryMesh>>,
+) {
+    if !editor.accessories_dirty {
+        return;
+    }
+    editor.accessories_dirty = false;
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    for item in editor.accessories.iter().filter(|a| a.visible) {
+        let a = &item.acc;
+        let flat: Vec<u32> = a.triangles.iter().flatten().copied().collect();
+        let Ok(m) = oxy_mesh::Mesh::new(a.positions.clone(), flat.clone()) else {
+            continue;
+        };
+        let normals = m.compute_normals(&a.positions);
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            a.positions.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+        );
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_NORMAL,
+            normals.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+        );
+        let painted = accessory_colors(a);
+        if let Some(c) = painted.clone() {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, c);
+        }
+        mesh.insert_indices(Indices::U32(flat));
+        let [r, g, b] = if painted.is_some() {
+            [1.0; 3]
+        } else {
+            ACCESSORY_CLAY
+        };
+        commands.spawn((
+            AccessoryMesh,
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::linear_rgb(r, g, b),
+                perceptual_roughness: 0.6,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            })),
+        ));
+    }
+}

@@ -16,6 +16,8 @@ pub struct ExportMesh<'a> {
     pub indices: &'a [u32],
     /// Linear RGBA base color.
     pub base_color: [f32; 4],
+    /// Optional linear RGBA vertex colors (`COLOR_0`).
+    pub colors: Option<&'a [[f32; 4]]>,
 }
 
 const ARRAY_BUFFER: u32 = 34962;
@@ -29,9 +31,24 @@ fn pad4(v: &mut Vec<u8>, byte: u8) {
     }
 }
 
-pub fn write_glb(mesh: &ExportMesh, mut w: impl Write) -> Result<()> {
-    assert_eq!(mesh.positions.len(), mesh.normals.len());
-    let mut bin = Vec::new();
+/// Write one mesh as a `.glb`.
+pub fn write_glb(mesh: &ExportMesh, w: impl Write) -> Result<()> {
+    write_glb_scene(std::slice::from_ref(mesh), w)
+}
+
+/// Write several meshes as separate nodes of one `.glb` scene.
+pub fn write_glb_scene(meshes: &[ExportMesh], mut w: impl Write) -> Result<()> {
+    let mut bin: Vec<u8> = Vec::new();
+    let (mut views, mut accessors, mut gl_meshes, mut nodes, mut materials) =
+        (vec![], vec![], vec![], vec![], vec![]);
+    let mut view = |bin: &mut Vec<u8>, bytes: Vec<u8>, target: u32| {
+        let off = bin.len();
+        let len = bytes.len();
+        bin.extend(bytes);
+        pad4(bin, 0);
+        views.push(json!({ "buffer": 0, "byteOffset": off, "byteLength": len, "target": target }));
+        views.len() - 1
+    };
     let f32s = |v: &[Vec3]| -> Vec<u8> {
         v.iter()
             .flat_map(|p| p.to_array())
@@ -39,43 +56,54 @@ pub fn write_glb(mesh: &ExportMesh, mut w: impl Write) -> Result<()> {
             .collect()
     };
 
-    let pos_off = bin.len();
-    bin.extend(f32s(mesh.positions));
-    let nrm_off = bin.len();
-    bin.extend(f32s(mesh.normals));
-    let idx_off = bin.len();
-    bin.extend(mesh.indices.iter().flat_map(|i| i.to_le_bytes()));
-    let n = mesh.positions.len();
-
-    let (lo, hi) = crate::makehuman::bounds(mesh.positions);
+    for (i, mesh) in meshes.iter().enumerate() {
+        assert_eq!(mesh.positions.len(), mesh.normals.len());
+        let n = mesh.positions.len();
+        let (lo, hi) = crate::makehuman::bounds(mesh.positions);
+        let v = view(&mut bin, f32s(mesh.positions), ARRAY_BUFFER);
+        accessors.push(json!({ "bufferView": v, "componentType": FLOAT, "count": n, "type": "VEC3", "min": lo.to_array(), "max": hi.to_array() }));
+        let pos = accessors.len() - 1;
+        let v = view(&mut bin, f32s(mesh.normals), ARRAY_BUFFER);
+        accessors
+            .push(json!({ "bufferView": v, "componentType": FLOAT, "count": n, "type": "VEC3" }));
+        let nrm = accessors.len() - 1;
+        let mut attributes = json!({ "POSITION": pos, "NORMAL": nrm });
+        if let Some(c) = mesh.colors {
+            assert_eq!(c.len(), n);
+            let v = view(
+                &mut bin,
+                c.iter().flatten().flat_map(|x| x.to_le_bytes()).collect(),
+                ARRAY_BUFFER,
+            );
+            accessors.push(
+                json!({ "bufferView": v, "componentType": FLOAT, "count": n, "type": "VEC4" }),
+            );
+            attributes["COLOR_0"] = json!(accessors.len() - 1);
+        }
+        let v = view(
+            &mut bin,
+            mesh.indices.iter().flat_map(|i| i.to_le_bytes()).collect(),
+            ELEMENT_ARRAY_BUFFER,
+        );
+        accessors.push(json!({ "bufferView": v, "componentType": UNSIGNED_INT, "count": mesh.indices.len(), "type": "SCALAR" }));
+        let idx = accessors.len() - 1;
+        materials.push(json!({
+            "name": format!("{}-material", mesh.name),
+            "pbrMetallicRoughness": { "baseColorFactor": mesh.base_color, "metallicFactor": 0.0, "roughnessFactor": 0.6 }
+        }));
+        gl_meshes.push(json!({ "name": mesh.name, "primitives": [{ "attributes": attributes, "indices": idx, "material": i }] }));
+        nodes.push(json!({ "name": mesh.name, "mesh": i }));
+    }
     let doc = json!({
         "asset": { "version": "2.0", "generator": "OxyCharacter" },
         "scene": 0,
-        "scenes": [{ "nodes": [0] }],
-        "nodes": [{ "name": mesh.name, "mesh": 0 }],
-        "meshes": [{
-            "name": mesh.name,
-            "primitives": [{
-                "attributes": { "POSITION": 0, "NORMAL": 1 },
-                "indices": 2,
-                "material": 0
-            }]
-        }],
-        "materials": [{
-            "name": "skin",
-            "pbrMetallicRoughness": { "baseColorFactor": mesh.base_color, "metallicFactor": 0.0, "roughnessFactor": 0.6 }
-        }],
+        "scenes": [{ "nodes": (0..meshes.len()).collect::<Vec<_>>() }],
+        "nodes": nodes,
+        "meshes": gl_meshes,
+        "materials": materials,
         "buffers": [{ "byteLength": bin.len() }],
-        "bufferViews": [
-            { "buffer": 0, "byteOffset": pos_off, "byteLength": n * 12, "target": ARRAY_BUFFER },
-            { "buffer": 0, "byteOffset": nrm_off, "byteLength": n * 12, "target": ARRAY_BUFFER },
-            { "buffer": 0, "byteOffset": idx_off, "byteLength": mesh.indices.len() * 4, "target": ELEMENT_ARRAY_BUFFER }
-        ],
-        "accessors": [
-            { "bufferView": 0, "componentType": FLOAT, "count": n, "type": "VEC3", "min": lo.to_array(), "max": hi.to_array() },
-            { "bufferView": 1, "componentType": FLOAT, "count": n, "type": "VEC3" },
-            { "bufferView": 2, "componentType": UNSIGNED_INT, "count": mesh.indices.len(), "type": "SCALAR" }
-        ]
+        "bufferViews": views,
+        "accessors": accessors,
     });
     let mut json = serde_json::to_vec(&doc)?;
     pad4(&mut json, b' ');
@@ -109,6 +137,7 @@ mod tests {
                 normals: &[Vec3::Z; 3],
                 indices: &[0, 1, 2],
                 base_color: [1.0; 4],
+                colors: None,
             },
             &mut out,
         )

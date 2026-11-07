@@ -15,6 +15,7 @@ fn glb_parses_with_gltf_crate() {
         normals: &normals,
         indices: &indices,
         base_color: [0.8, 0.6, 0.5, 1.0],
+        colors: None,
     };
     write_glb(&mesh, &mut bytes).unwrap();
 
@@ -62,4 +63,39 @@ fn imports_makehuman_data_if_available() {
             assert!(cat.param(m).is_some(), "mirror {m} of {}", p.id);
         }
     }
+}
+
+#[test]
+fn multi_mesh_glb_with_colors_parses() {
+    let p = [Vec3::ZERO, Vec3::X, Vec3::Y];
+    let n = [Vec3::Z; 3];
+    let c = [[1.0, 0.0, 0.0, 1.0]; 3];
+    let body = ExportMesh {
+        name: "body",
+        positions: &p,
+        normals: &n,
+        indices: &[0, 1, 2],
+        base_color: [1.0; 4],
+        colors: None,
+    };
+    let hat = ExportMesh {
+        name: "hat",
+        positions: &p,
+        normals: &n,
+        indices: &[0, 2, 1],
+        base_color: [1.0; 4],
+        colors: Some(&c),
+    };
+    let mut bytes = Vec::new();
+    oxy_io::gltf::write_glb_scene(&[body, hat], &mut bytes).unwrap();
+    let (doc, buffers, _) = gltf::import_slice(&bytes).expect("valid glb");
+    assert_eq!(doc.nodes().count(), 2);
+    let hat = doc.meshes().nth(1).unwrap().primitives().next().unwrap();
+    let colors: Vec<[f32; 4]> = hat
+        .reader(|b| Some(&buffers[b.index()]))
+        .read_colors(0)
+        .unwrap()
+        .into_rgba_f32()
+        .collect();
+    assert_eq!(colors, c);
 }
