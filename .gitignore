@@ -1,0 +1,8 @@
+/target
+/assets/cache/
+/assets/generated/
+/exports/
+/user/
+/tools/validate-gltf/node_modules/
+/tools/validate-gltf/*.glb
+/tools/validate-gltf/package-lock.json

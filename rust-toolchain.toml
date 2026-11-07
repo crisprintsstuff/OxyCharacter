@@ -1,0 +1,4 @@
+[toolchain]
+# Bevy 0.20 needs rustc >= 1.97.1. Bump deliberately, in its own commit.
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
