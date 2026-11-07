@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use glam::Vec3;
-use oxy_mesh::{Mesh, MorphTarget, MorphableMesh};
+use oxy_mesh::{Mesh, MorphTarget, MorphableMesh, RenderMesh};
 use oxy_morph::{Catalog, Gain, MacroAxis, MacroGrid, MacroLayer, ParamDef, Slider};
 use oxy_rig::{Bone, Influence, Joint, Rig};
 use serde_json::Value;
@@ -193,7 +193,27 @@ pub fn import(root: &Path) -> Result<CharacterAsset> {
             indices.extend([f[0], f[k], f[k + 1]].map(|v| remap[v as usize]));
         }
     }
+    // Render mesh: same triangles, vertices split at UV seams (glTF v-down UVs).
+    let mut corners = Vec::with_capacity(indices.len());
+    for ((f, g), fuv) in obj.faces.iter().zip(&obj.face_uvs) {
+        if *g != body {
+            continue;
+        }
+        if fuv.len() != f.len() {
+            corners.clear(); // some face has no UVs: no render mesh
+            break;
+        }
+        for k in 1..f.len() - 1 {
+            for c in [0, k, k + 1] {
+                let [u, v] = obj.uvs[fuv[c] as usize];
+                corners.push((remap[f[c] as usize], [u, 1.0 - v]));
+            }
+        }
+    }
     let base = Mesh::new(positions, indices).map_err(|e| IoError::Invalid(e.to_string()))?;
+    let render = (corners.len() == base.indices.len())
+        .then(|| RenderMesh::from_corners(corners))
+        .filter(|r| r.matches(&base));
 
     let mut aux_remap = vec![u32::MAX; obj.positions.len()];
     let mut aux = Vec::new();
@@ -230,6 +250,7 @@ pub fn import(root: &Path) -> Result<CharacterAsset> {
         },
         catalog,
         rig,
+        render,
     })
 }
 

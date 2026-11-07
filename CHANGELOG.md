@@ -6,6 +6,14 @@ development branch. The project has not made a release yet.
 ## [Unreleased] — 0.1.0
 
 ### Added
+- **Materials (M4):** UV render mesh (bundle v3); `oxy-material` crate with a
+  procedural layer stack baked to albedo/normal/roughness textures; skin
+  controls (tone, variation, detail, roughness, freckles, blush, eye shadow,
+  lips) with face regions from bone weights; generated eyes with procedural
+  irises; Material tab; textured glTF export with tangents and embedded PNGs
+  (`--texture-size`, `--no-textures`, `--no-eyes`); material settings in
+  projects and undo.
+- Smaller dev builds: dependencies without debug info.
 - **Projects (M3):** `.oxyc` project files (changed sliders only, skin, pose,
   export options, embedded sculpted morphs and accessories, base-mesh
   fingerprint, migration hook); New/Open/Open recent/Save/Save as; undo/redo;

@@ -355,6 +355,7 @@ mod tests {
             },
             catalog: oxy_morph::Catalog::default(),
             rig: None,
+            render: None,
         };
         let mut ed = Editor::new(asset, dir);
         ed.bridge.launch = false;

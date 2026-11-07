@@ -42,6 +42,18 @@ fn imports_makehuman_data_if_available() {
     assert!(asset.mesh.base.vertex_count() > 10_000);
     assert!(cat.params.len() > 200);
 
+    // UVs: a render mesh with seams, consistent with the base, UVs inside the unit square.
+    let r = asset.render.as_ref().expect("render mesh with UVs");
+    assert!(r.matches(&asset.mesh.base));
+    assert!(
+        r.vertex_count() > asset.mesh.base.vertex_count(),
+        "seams split some vertices"
+    );
+    assert!(
+        r.uvs.iter().flatten().all(|c| (-1e-4..=1.0001).contains(c)),
+        "UVs in [0,1]"
+    );
+
     // Neutral body is roughly human-sized; "tall" is taller than "short".
     let height = |h: f32| {
         let mut p = cat.defaults();
@@ -90,7 +102,7 @@ fn multi_mesh_glb_with_colors_parses() {
         ..Default::default()
     };
     let mut bytes = Vec::new();
-    oxy_io::gltf::write_glb_scene(&[body, hat], None, &mut bytes).unwrap();
+    oxy_io::gltf::write_glb_scene(&[body, hat], None, &[], &mut bytes).unwrap();
     let (doc, buffers, _) = gltf::import_slice(&bytes).expect("valid glb");
     assert_eq!(doc.nodes().count(), 2);
     let hat = doc.meshes().nth(1).unwrap().primitives().next().unwrap();
@@ -176,7 +188,15 @@ fn rigged_export_is_consistent_if_available() {
             bind_pose: pose,
             ..Default::default()
         };
-        character_glb(&asset, &asset.catalog.defaults(), &[], &opts, &mut bytes).unwrap();
+        character_glb(
+            &asset,
+            &asset.catalog.defaults(),
+            &[],
+            &Default::default(),
+            &opts,
+            &mut bytes,
+        )
+        .unwrap();
         let (doc, buffers, _) = gltf::import_slice(&bytes).expect("valid glb");
         let skin = doc.skins().next().expect("skin");
         let joints: Vec<_> = skin.joints().collect();
@@ -219,6 +239,18 @@ fn rigged_export_is_consistent_if_available() {
         }
 
         let prim = doc.meshes().next().unwrap().primitives().next().unwrap();
+        // Textured body with UVs and tangents; eyes and four embedded images.
+        assert!(
+            prim.get(&gltf::Semantic::TexCoords(0)).is_some()
+                && prim.get(&gltf::Semantic::Tangents).is_some()
+        );
+        assert!(prim
+            .material()
+            .pbr_metallic_roughness()
+            .base_color_texture()
+            .is_some());
+        assert_eq!(doc.images().count(), 4);
+        assert!(doc.meshes().any(|m| m.name() == Some("eye.L")));
         let r = prim.reader(|b| Some(&buffers[b.index()]));
         for w in r.read_weights(0).unwrap().into_f32() {
             assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-4);
@@ -238,5 +270,68 @@ fn rigged_export_is_consistent_if_available() {
                 "T-pose arm: shoulder {sh:?} wrist {wr:?}"
             );
         }
+    }
+}
+
+/// Skin bake and eyes on the real character (skipped without data).
+/// Set `OXY_DUMP_DIR` to also write the textures as PNGs for inspection.
+#[test]
+fn skin_bake_and_eyes_if_available() {
+    let Some(dir) = std::env::var_os("OXY_MAKEHUMAN_DATA") else {
+        eprintln!("OXY_MAKEHUMAN_DATA not set; skipping");
+        return;
+    };
+    use oxy_io::material::{eyes, iris, png_bytes, MaterialParams, SkinBaker};
+    let asset = oxy_io::makehuman::import(dir.as_ref()).unwrap();
+    let t0 = std::time::Instant::now();
+    let baker = SkinBaker::new(&asset, 1024).expect("UVs");
+    let t1 = t0.elapsed();
+    let p = MaterialParams::default();
+    let t = baker.bake([0.62, 0.40, 0.29], &p.skin);
+    eprintln!(
+        "rasterize {t1:.1?}, bake {:.1?}, coverage {:.2}",
+        t0.elapsed() - t1,
+        baker.map.coverage()
+    );
+    assert!(
+        baker.map.coverage() > 0.3,
+        "UV layout covers a good part of the texture"
+    );
+    // The lips region exists and differs from plain skin.
+    assert!(baker.attrs.regions[oxy_material::skin::LIPS]
+        .iter()
+        .any(|&w| w > 0.6));
+    assert_eq!(t.albedo.rgba.len(), 1024 * 1024 * 4);
+
+    let ev = asset.evaluate_full(&asset.catalog.defaults());
+    let e = eyes(&asset, &ev, &p.eyes);
+    assert_eq!(e.len(), 2);
+    let (lo, hi) = oxy_io::makehuman::bounds(&e[0].mesh.positions);
+    let c = (lo + hi) * 0.5;
+    assert!(
+        c.y > 1.45 && c.y < 1.75 && c.x > 0.0,
+        "left eye at eye height on the left: {c:?}"
+    );
+    assert!(
+        (hi - lo).x > 0.015 && (hi - lo).x < 0.035,
+        "eyeball size {:?}",
+        hi - lo
+    );
+
+    if let Some(out) = std::env::var_os("OXY_DUMP_DIR") {
+        let out = std::path::PathBuf::from(out);
+        std::fs::create_dir_all(&out).unwrap();
+        for (name, img) in [
+            ("albedo", &t.albedo),
+            ("normal", &t.normal),
+            ("orm", &t.orm),
+        ] {
+            std::fs::write(
+                out.join(format!("skin_{name}.png")),
+                png_bytes(img).unwrap(),
+            )
+            .unwrap();
+        }
+        std::fs::write(out.join("iris.png"), png_bytes(&iris(&p.eyes)).unwrap()).unwrap();
     }
 }

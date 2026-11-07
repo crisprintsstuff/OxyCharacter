@@ -30,6 +30,27 @@ pub struct ExportMesh<'a> {
     /// Per-vertex bone influences; requires a skeleton in the scene.
     pub skin: Option<&'a [Influence]>,
     pub morphs: Vec<ExportMorph<'a>>,
+    /// Texture coordinates (`TEXCOORD_0`, glTF convention); required for textures.
+    pub uvs: Option<&'a [[f32; 2]]>,
+    /// Textures by index into the scene's images.
+    pub textures: MeshTextures,
+}
+
+/// Texture slots of a mesh's material (indices into the image list).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MeshTextures {
+    pub base_color: Option<usize>,
+    pub normal: Option<usize>,
+    /// G = roughness, B = metallic (glTF layout).
+    pub metallic_roughness: Option<usize>,
+    /// Roughness factor when there is no metallic-roughness texture.
+    pub roughness: Option<f32>,
+}
+
+/// An embedded PNG image.
+pub struct ExportImage<'a> {
+    pub name: &'a str,
+    pub png: &'a [u8],
 }
 
 /// Joint hierarchy for the scene's single skin.
@@ -109,13 +130,14 @@ impl Builder {
 
 /// Write one mesh as a `.glb`.
 pub fn write_glb(mesh: &ExportMesh, w: impl Write) -> Result<()> {
-    write_glb_scene(std::slice::from_ref(mesh), None, w)
+    write_glb_scene(std::slice::from_ref(mesh), None, &[], w)
 }
 
 /// Write several meshes (separate nodes) and an optional skeleton as one `.glb`.
 pub fn write_glb_scene(
     meshes: &[ExportMesh],
     skeleton: Option<&ExportSkeleton>,
+    images: &[ExportImage],
     mut w: impl Write,
 ) -> Result<()> {
     let mut b = Builder {
@@ -132,6 +154,23 @@ pub fn write_glb_scene(
         let pos = b.vec3s(mesh.positions, true);
         let nrm = b.vec3s(mesh.normals, false);
         let mut attributes = json!({ "POSITION": pos, "NORMAL": nrm });
+        if let (Some(uv), Some(_)) = (mesh.uvs, mesh.textures.normal) {
+            // Normal-mapped: provide tangents (validators want them; consistent with the bake).
+            let t = oxy_mesh::compute_tangents(mesh.positions, mesh.normals, uv, mesh.indices);
+            let v = b.view(
+                t.iter().flatten().flat_map(|x| x.to_le_bytes()).collect(),
+                Some(ARRAY_BUFFER),
+            );
+            attributes["TANGENT"] = json!(b.accessor(v, FLOAT, n, "VEC4", None));
+        }
+        if let Some(uv) = mesh.uvs {
+            assert_eq!(uv.len(), n);
+            let v = b.view(
+                uv.iter().flatten().flat_map(|x| x.to_le_bytes()).collect(),
+                Some(ARRAY_BUFFER),
+            );
+            attributes["TEXCOORD_0"] = json!(b.accessor(v, FLOAT, n, "VEC2", None));
+        }
         if let Some(c) = mesh.colors {
             assert_eq!(c.len(), n);
             let v = b.view(
@@ -195,10 +234,26 @@ pub fn write_glb_scene(
         }
         gl_mesh["primitives"] = json!([primitive]);
         gl_meshes.push(gl_mesh);
-        materials.push(json!({
-            "name": format!("{}-material", mesh.name),
-            "pbrMetallicRoughness": { "baseColorFactor": mesh.base_color, "metallicFactor": 0.0, "roughnessFactor": 0.6 }
-        }));
+        let t = mesh.textures;
+        let textured = mesh.uvs.is_some();
+        let tex = |i: Option<usize>| {
+            i.filter(|&i| textured && i < images.len())
+                .map(|i| json!({ "index": i }))
+        };
+        let mut pbr = json!({ "baseColorFactor": mesh.base_color, "metallicFactor": 0.0, "roughnessFactor": t.roughness.unwrap_or(0.6) });
+        if let Some(bc) = tex(t.base_color) {
+            pbr["baseColorTexture"] = bc;
+        }
+        if let Some(mr) = tex(t.metallic_roughness) {
+            pbr["metallicRoughnessTexture"] = mr;
+            pbr["roughnessFactor"] = json!(1.0);
+        }
+        let mut material =
+            json!({ "name": format!("{}-material", mesh.name), "pbrMetallicRoughness": pbr });
+        if let Some(nt) = tex(t.normal) {
+            material["normalTexture"] = nt;
+        }
+        materials.push(material);
         let mut node = json!({ "name": mesh.name, "mesh": i });
         if skinned {
             node["skin"] = json!(0);
@@ -248,6 +303,15 @@ pub fn write_glb_scene(
         }));
     }
 
+    // Images go into the binary buffer before the document is assembled.
+    let gl_images: Vec<Value> = images
+        .iter()
+        .map(|img| {
+            let v = b.view(img.png.to_vec(), None);
+            json!({ "name": img.name, "bufferView": v, "mimeType": "image/png" })
+        })
+        .collect();
+
     let mut doc = json!({
         "asset": { "version": "2.0", "generator": "OxyCharacter" },
         "scene": 0,
@@ -261,6 +325,14 @@ pub fn write_glb_scene(
     });
     if !skins.is_empty() {
         doc["skins"] = json!(skins);
+    }
+    if !gl_images.is_empty() {
+        doc["textures"] = json!((0..gl_images.len())
+            .map(|i| json!({ "source": i, "sampler": 0 }))
+            .collect::<Vec<_>>());
+        doc["images"] = json!(gl_images);
+        doc["samplers"] =
+            json!([{ "magFilter": 9729, "minFilter": 9987, "wrapS": 33071, "wrapT": 33071 }]);
     }
     let mut json = serde_json::to_vec(&doc)?;
     pad4(&mut json, b' ');

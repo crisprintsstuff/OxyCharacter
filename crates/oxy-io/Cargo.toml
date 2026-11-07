@@ -16,6 +16,8 @@ thiserror.workspace = true
 oxy-mesh.workspace = true
 oxy-morph.workspace = true
 oxy-rig.workspace = true
+oxy-material.workspace = true
+png = "0.18"
 
 [dev-dependencies]
 gltf = "1.4"

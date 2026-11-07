@@ -120,6 +120,111 @@ pub struct MorphableMesh {
     pub aux: Vec<Vec3>,
 }
 
+/// The mesh as drawn and exported: vertices split where texture coordinates
+/// differ (UV seams), each mapped back to a base vertex.
+///
+/// Morphs, skinning and everything indexed by the base topology stay on the
+/// welded base mesh; per-vertex data is gathered through [`RenderMesh::map`]
+/// after evaluation. Triangle `t` here is triangle `t` of the base mesh.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RenderMesh {
+    /// Render vertex → base vertex.
+    pub map: Vec<u32>,
+    /// Texture coordinates in glTF convention (v down, origin top-left).
+    pub uvs: Vec<[f32; 2]>,
+    /// Triangle list over render vertices, in base triangle order.
+    pub indices: Vec<u32>,
+}
+
+impl RenderMesh {
+    /// Build from per-corner `(base vertex, uv)` pairs of a triangle list.
+    /// Corners with the same base vertex and the same UV share a render vertex.
+    pub fn from_corners(corners: impl IntoIterator<Item = (u32, [f32; 2])>) -> Self {
+        let mut out = Self::default();
+        let mut seen: std::collections::HashMap<(u32, [u32; 2]), u32> =
+            std::collections::HashMap::new();
+        for (v, uv) in corners {
+            let key = (v, uv.map(f32::to_bits));
+            let i = *seen.entry(key).or_insert_with(|| {
+                out.map.push(v);
+                out.uvs.push(uv);
+                out.map.len() as u32 - 1
+            });
+            out.indices.push(i);
+        }
+        out
+    }
+
+    pub fn vertex_count(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Per-render-vertex copy of per-base-vertex data.
+    pub fn gather<T: Copy>(&self, per_base: &[T]) -> Vec<T> {
+        self.map.iter().map(|&b| per_base[b as usize]).collect()
+    }
+
+    /// Check consistency with `base` (same triangles, valid indices).
+    pub fn matches(&self, base: &Mesh) -> bool {
+        self.map.len() == self.uvs.len()
+            && self.indices.len() == base.indices.len()
+            && self.map.iter().all(|&b| (b as usize) < base.vertex_count())
+            && self
+                .indices
+                .iter()
+                .zip(&base.indices)
+                .all(|(&r, &b)| (r as usize) < self.map.len() && self.map[r as usize] == b)
+    }
+}
+
+/// Per-vertex tangents `[x, y, z, w]` for normal mapping (glTF convention):
+/// `xyz` follows increasing u; `w` is the handedness such that
+/// `cross(normal, xyz) * w` points up the texture (decreasing v, as glTF
+/// normal maps use +Y up the image with v running down).
+pub fn compute_tangents(
+    positions: &[Vec3],
+    normals: &[Vec3],
+    uvs: &[[f32; 2]],
+    indices: &[u32],
+) -> Vec<[f32; 4]> {
+    let n = positions.len();
+    let (mut tan, mut bit) = (vec![Vec3::ZERO; n], vec![Vec3::ZERO; n]);
+    for t in indices.as_chunks::<3>().0 {
+        let [a, b, c] = [t[0], t[1], t[2]].map(|i| i as usize);
+        let (e1, e2) = (positions[b] - positions[a], positions[c] - positions[a]);
+        let (d1, d2) = (
+            [uvs[b][0] - uvs[a][0], uvs[b][1] - uvs[a][1]],
+            [uvs[c][0] - uvs[a][0], uvs[c][1] - uvs[a][1]],
+        );
+        let det = d1[0] * d2[1] - d2[0] * d1[1];
+        if det.abs() < 1e-12 {
+            continue;
+        }
+        let r = 1.0 / det;
+        let du = (e1 * d2[1] - e2 * d1[1]) * r; // dP/du
+        let dv = (e2 * d1[0] - e1 * d2[0]) * r; // dP/dv
+        for i in [a, b, c] {
+            tan[i] += du;
+            bit[i] += dv;
+        }
+    }
+    (0..n)
+        .map(|i| {
+            let nrm = normals[i];
+            let t = (tan[i] - nrm * nrm.dot(tan[i]))
+                .try_normalize()
+                .unwrap_or_else(|| nrm.any_orthonormal_vector());
+            let up = -bit[i]; // up the image
+            let w = if nrm.cross(t).dot(up) < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            [t.x, t.y, t.z, w]
+        })
+        .collect()
+}
+
 /// Weights below this magnitude are skipped during evaluation.
 pub const WEIGHT_EPSILON: f32 = 1e-5;
 
@@ -174,6 +279,42 @@ mod tests {
             vec![0, 1, 2, 0, 2, 3],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn render_mesh_splits_seams_and_maps_back() {
+        let base = quad();
+        // Same corners, but vertex 0 has a different UV in the second triangle (a seam).
+        let uv = |x: f32, y: f32| [x, y];
+        let corners = [
+            (0, uv(0.0, 0.0)),
+            (1, uv(1.0, 0.0)),
+            (2, uv(1.0, 1.0)),
+            (0, uv(0.5, 0.5)),
+            (2, uv(1.0, 1.0)),
+            (3, uv(0.0, 1.0)),
+        ];
+        let r = RenderMesh::from_corners(corners);
+        assert_eq!(r.vertex_count(), 5, "vertex 0 is split, vertex 2 shared");
+        assert!(r.matches(&base));
+        assert_eq!(r.gather(&[10, 11, 12, 13]), vec![10, 11, 12, 10, 13]);
+        let mut bad = r.clone();
+        bad.indices.swap(0, 1);
+        assert!(!bad.matches(&base));
+    }
+
+    #[test]
+    fn tangents_follow_u_and_handedness_points_up_the_image() {
+        let m = quad();
+        // u along +X, v running down the image = along -Y of the quad.
+        let uvs = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+        let n = m.compute_normals(&m.positions);
+        let t = compute_tangents(&m.positions, &n, &uvs, &m.indices);
+        for tv in t {
+            assert!((Vec3::new(tv[0], tv[1], tv[2]) - Vec3::X).length() < 1e-5);
+            // cross(+Z, +X) = +Y, which is "up the image" here, so w = +1.
+            assert_eq!(tv[3], 1.0);
+        }
     }
 
     #[test]

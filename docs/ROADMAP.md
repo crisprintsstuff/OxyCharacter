@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-07 · **Version:** 0.1.0 (unreleased)
+**Last updated:** 2026-11-07 (M4) · **Version:** 0.1.0 (unreleased)
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -16,8 +16,8 @@ Legend: ✅ done · 🚧 in progress · ⏳ planned · ❔ needs a decision
 | M1.5 | OxyBrush bridge: send, live re-import as morphs / accessories | ✅ |
 | M2 | Rigged & exportable: skeleton refit, poses, skinned glTF | ✅ |
 | M3 | Projects, undo/redo, autosave & recovery | ✅ |
-| M4 | Materials: UVs, layered skin, eyes, texture export | ⏳ next |
-| M5 | Clothing & hair: fitting, weight transfer, hide-under | ⏳ |
+| M4 | Materials: UVs, procedural skin, eyes, texture export | ✅ |
+| M5 | Clothing & hair: fitting, weight transfer, hide-under | ⏳ next |
 | M6 | Face & expressions | ⏳ |
 | M7 | Production export: LODs, atlases, engine presets, FBX | ⏳ |
 | M8+ | Stretch: photo-to-head, cloth preview, scripting, USD | ⏳ |
@@ -59,37 +59,49 @@ Cargo workspace, CI (fmt, clippy, test), clean-room policy, `oxy-mesh`
 - Undo/redo (one step per finished edit), unsaved marker and prompts, recent
   files, autosave every 60 s with crash recovery, shortcuts.
 
-## Next: M4 — Materials ⏳
+### M4 — Materials ✅
+- UVs from the base mesh: a separate *render mesh* split at UV seams, mapped
+  back to base vertices; morphs, skinning and projects stay on the welded mesh
+  (bundle v3).
+- `oxy-material`: UV rasterizer (texel → surface point, dilated), 3D value
+  noise, layer stack (colour/noise sources, region/noise masks, blend modes)
+  baked to albedo (sRGB), tangent-space normal and occlusion-roughness-metal.
+- Procedural skin (tone, variation, detail, roughness, freckles, blush, eye
+  shadow, lips) with face regions from face-bone skin weights; generated
+  eyeballs on the eye bones with a procedural iris.
+- Editor Material tab; textured viewport (own tangents matching the bake);
+  material settings undoable and saved in projects (optional field).
+- glTF: UVs, tangents, embedded PNG textures, eyes rigged to the eye bones;
+  Khronos validator 0 errors / 0 warnings; renders correctly in three.js.
+- Viewport bake 1024² ≈ 0.2 s on 4 cores, done when a slider is released.
 
-Goal: a textured, believable character in the editor and in exports.
+Not yet: image layers (tattoos/decals, imported textures), GPU compositing,
+teeth/tongue/eyelashes/brows, subsurface scattering, eye wetness/cornea
+geometry, texture painting.
 
-1. **UVs and seams.** Import the base mesh's UVs. The render/export mesh needs
-   split vertices at UV seams while morphs and skinning stay on the welded
-   mesh: add a *render map* (render vertex → base vertex) applied after
-   evaluation. Keep the base topology identity intact (invariant 2).
-2. **Layer stack** (`oxy-material`, new crate, no GPU): layers of
-   image / color / procedural noise with blend mode, mask, opacity, per
-   channel (albedo, normal, roughness, AO, SSS strength). CPU reference
-   compositor + tests; GPU compositor in `oxy-app` later.
-3. **Skin & eyes.** Original or CC0 base skin textures (ledger!), tone control
-   replacing today's flat color, eye geometry (MakeHuman has CC0 eye proxies
-   as separate assets — check licence per asset) with iris color.
-4. **Export.** Bake the stack to PNGs and reference them from glTF
-   (`baseColorTexture`, `normalTexture`, `metallicRoughnessTexture`); keep
-   exports validator-clean.
-5. **Projects.** Material settings in `DocState`/`Project` (+ tests).
+## Next: M5 — Clothing & hair ⏳
 
-Open questions ❔: texture resolution defaults; whether to ship any textures in
-the repo or fetch them like the mesh; SSS approximation in Bevy.
+Goal: garments and hair that fit any body and follow poses.
+
+1. **Fitting** (`oxy-fit`, new crate, no GPU): bind each garment vertex to
+   the base body (closest triangle, barycentrics, normal offset, tangent
+   frame); refit on every body change; Laplacian smoothing and push-out
+   against the body; per-item tightness. RBF deformation for loose items.
+2. **Weights:** transfer from the body with smoothing (beyond today's
+   nearest-vertex), so sleeves and skirts bend well.
+3. **Hide-under masks:** hide body triangles fully covered by a garment.
+4. **Content:** an asset package format (`manifest` + glTF), a content
+   browser tab, a few original/CC0 garments, and OxyBrush accessories as
+   fittable items (bind at import).
+5. **Hair:** card meshes with an anisotropic material (alpha-tested strands
+   texture generated procedurally).
+6. **Projects:** items, fit settings and hidden-triangle masks in
+   `DocState`/`Project`, export as skinned meshes.
+
+Open questions ❔: package format details; whether to support layered
+garments (shirt under jacket) in M5 or later.
 
 ## Later
-
-### M5 — Clothing & hair ⏳
-Bind/fit/smooth/collide garments to any body (PLAN §3.4), RBF for loose
-items, weight transfer better than nearest-vertex (smoothing, geodesic
-falloff), hide-under masks, an asset package format (`manifest` + glTF),
-hair cards with an anisotropic shader. Accessories from OxyBrush become
-fittable items.
 
 ### M6 — Face & expressions ⏳
 Expression set with stable names, deformation transport onto morphed faces,
@@ -111,7 +123,7 @@ Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
 - **Never run on a real GPU, Windows or macOS:** everything so far ran under
   Linux software rendering (lavapipe).
 - **Native file dialogs:** paths are typed into a dialog with recent files.
-- **Body only:** no eyes, teeth, eyelashes or tongue yet (M4/M6).
+- **No teeth, tongue, eyelashes or brows** yet (M6); eyes are simple spheres.
 - **Accessories don't refit** to body changes (M5); weight transfer is
   nearest-vertex.
 - **Skinning is linear blend**: elbows/shoulders pinch in extreme poses

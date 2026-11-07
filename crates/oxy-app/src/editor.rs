@@ -52,6 +52,11 @@ pub struct Editor {
     /// Last evaluated body in the rest pose (for accessory weight transfer).
     pub rest_body: Vec<oxy_io::glam::Vec3>,
     pub export: oxy_io::export::ExportOptions,
+    /// Skin and eye settings (part of the document).
+    pub material: oxy_io::material::MaterialParams,
+    /// Posed eyeball positions/normals from the last body update.
+    pub eyes: Vec<(Vec<oxy_io::glam::Vec3>, Vec<oxy_io::glam::Vec3>)>,
+    pub eyes_dirty: bool,
     /// Document session (undo, file, autosave); set by `init_session`.
     pub session: Option<crate::document::Session>,
 }
@@ -113,6 +118,9 @@ impl Editor {
             skin_mats: Vec::new(),
             rest_body: Vec::new(),
             export: oxy_io::export::ExportOptions::default(),
+            material: oxy_io::material::MaterialParams::default(),
+            eyes: Vec::new(),
+            eyes_dirty: false,
             session: None,
         }
     }
@@ -155,6 +163,33 @@ impl Editor {
             .map(|(p, b)| *p * b.inverse())
             .collect::<Vec<Mat4>>();
         oxy_rig::skin_with(&rig.skin, &ev.body, normals, &self.skin_mats)
+    }
+
+    /// Place (and pose) the eyeballs for the evaluated body.
+    pub fn update_eyes(&mut self, ev: &oxy_io::Evaluated) {
+        let eyes = oxy_io::material::eyes(&self.asset, ev, &self.material.eyes);
+        self.eyes = eyes
+            .into_iter()
+            .map(|e| match (e.bone, self.skin_mats.is_empty()) {
+                (Some(b), false) => {
+                    let m = self.skin_mats[b];
+                    (
+                        e.mesh
+                            .positions
+                            .iter()
+                            .map(|p| m.transform_point3(*p))
+                            .collect(),
+                        e.mesh
+                            .normals
+                            .iter()
+                            .map(|n| m.transform_vector3(*n).normalize())
+                            .collect(),
+                    )
+                }
+                _ => (e.mesh.positions, e.mesh.normals),
+            })
+            .collect();
+        self.eyes_dirty = true;
     }
 
     pub fn value(&self, id: &str) -> f32 {
