@@ -1,0 +1,17 @@
+[package]
+name = "oxy-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+glam.workspace = true
+serde.workspace = true
+serde_json = "1"
+thiserror.workspace = true
+oxy-mesh.workspace = true
+oxy-morph.workspace = true
+
+[dev-dependencies]
+gltf = "1.4"

@@ -1,1 +1,4 @@
 /target
+/assets/cache/
+/assets/generated/
+/exports/

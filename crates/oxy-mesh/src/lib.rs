@@ -39,7 +39,7 @@ impl Mesh {
     }
 
     pub fn triangles(&self) -> impl Iterator<Item = [u32; 3]> + '_ {
-        self.indices.chunks_exact(3).map(|t| [t[0], t[1], t[2]])
+        self.indices.as_chunks::<3>().0.iter().copied()
     }
 
     /// Area-weighted vertex normals for the given positions (same topology).

@@ -153,10 +153,12 @@ Each milestone ends with something demoable and tested.
 - `oxy-morph`: unipolar/bipolar/macro slider definitions → target weights.
 - `oxy-rig`: skeleton with vertex-anchor joint refit.
 
-### M1 — See a human (weeks 2–3)
-- `oxy-io`: OBJ + glTF import of the base mesh & targets; glTF export of a static mesh.
-- `oxy-app`: Bevy window, orbit camera, three-point lighting, egui panel with sliders driving `oxy-morph` → `oxy-mesh` live.
-- Asset bootstrap with CC0 base mesh.
+### M1 — See a human (weeks 2–3) ✅ *implemented*
+- `oxy-io`: OBJ + sparse-target import of the CC0 base mesh & targets, `.oxyb` binary bundle, static glTF (`.glb`) export.
+- `oxy-cli` (`oxy`): `import-makehuman`, `info`, `export`.
+- `oxy-app`: Bevy window, orbit camera, three-point lighting, egui editor with live sliders driving `oxy-morph` → `oxy-mesh`.
+- Asset bootstrap with CC0 base mesh via `tools/fetch-assets.sh`.
+- Known M1 limits: body mesh only (no eyes/teeth/eyelashes yet), no UVs/textures, static export.
 
 ### M2 — Rigged & exportable (weeks 4–6)
 - Joint anchors authored for the base mesh; refit on every slider change.
@@ -191,6 +193,31 @@ Each milestone ends with something demoable and tested.
 - USD export.
 
 ---
+
+## 5a. Editor UI layout
+
+A conventional three-panel 3D-editor layout (shared by most DCC tools), with
+OxyCharacter's own styling (dark theme, blue accent, text-and-symbol buttons):
+
+```
+┌ Menu: File · Edit · View ───────────────────────────────────────────────────┐
+├ Toolbar: Reset · Random · Body/Head framing · Symmetry · Export   Morph|Material|Pose ┤
+├──────────────┬──────────────────────────────────────┬───────────────────────┤
+│ Content      │ Viewport                             │ Morph                 │
+│ [Presets|Skin]│  stats overlay (verts, tris, morphs) │  search               │
+│  filter chips│                                      │  category tree        │
+│  preset cards│        3D character, orbit camera    │   (modified counts)   │
+│  (procedural │   hovered slider's region is tinted  │  sliders: label,      │
+│  silhouettes)│                                      │   value, reset, ends  │
+│              │                                      │  [modified only][sym] │
+├──────────────┴──────────────────────────────────────┴───────────────────────┤
+│ Status bar: last action · base-mesh license                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Behaviours: hovering or dragging a slider tints the affected region; symmetric
+editing links `l-`/`r-` sliders; double-click a slider to reset it; "Show
+modified only" filters the list; search covers labels, ids and categories.
 
 ## 6. Repository layout (target)
 

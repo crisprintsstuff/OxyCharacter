@@ -98,6 +98,14 @@ pub struct MacroGrid {
 impl MacroGrid {
     /// Add contributions for the macro values (one per axis, in axis order).
     pub fn apply(&self, values: &[f32], out: &mut TargetWeights) {
+        self.apply_scaled(values, 1.0, out);
+    }
+
+    /// Like [`MacroGrid::apply`], with every contribution multiplied by `scale`.
+    pub fn apply_scaled(&self, values: &[f32], scale: f32, out: &mut TargetWeights) {
+        if scale == 0.0 {
+            return;
+        }
         assert_eq!(values.len(), self.axes.len(), "one value per macro axis");
         let cells: Vec<(usize, f32)> = self
             .axes
@@ -127,10 +135,130 @@ impl MacroGrid {
             }
             if w > 0.0 {
                 if let Some(name) = lookup.get(coord.as_slice()) {
-                    add(out, name, w);
+                    add(out, name, w * scale);
                 }
             }
         }
+    }
+}
+
+/// Parameter values keyed by parameter id.
+pub type Params = BTreeMap<String, f32>;
+
+/// A user-editable parameter shown as one slider in the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParamDef {
+    pub id: String,
+    pub label: String,
+    /// Category path, e.g. `["Head", "Nose"]`.
+    pub group: Vec<String>,
+    pub min: f32,
+    pub max: f32,
+    pub default: f32,
+    /// Left/right counterpart for symmetric editing.
+    pub mirror: Option<String>,
+    /// Labels for the low and high ends of the range, e.g. `["narrow", "wide"]`.
+    #[serde(default)]
+    pub ends: Option<[String; 2]>,
+}
+
+/// How strongly a [`MacroLayer`] contributes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Gain {
+    One,
+    Constant(f32),
+    /// `max(param, 0)` — e.g. the "taller" half of a height slider.
+    Positive(String),
+    /// `max(-param, 0)` — e.g. the "shorter" half of a height slider.
+    Negative(String),
+}
+
+/// A macro grid whose axes are read from parameters (axis id = param id).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MacroLayer {
+    pub grid: MacroGrid,
+    pub gain: Gain,
+}
+
+/// The complete parameter → morph-weight model for one base mesh.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Catalog {
+    pub params: Vec<ParamDef>,
+    /// Simple sliders; each slider id is also a param id.
+    pub sliders: Vec<Slider>,
+    pub layers: Vec<MacroLayer>,
+}
+
+impl Catalog {
+    pub fn defaults(&self) -> Params {
+        self.params
+            .iter()
+            .map(|p| (p.id.clone(), p.default))
+            .collect()
+    }
+
+    pub fn param(&self, id: &str) -> Option<&ParamDef> {
+        self.params.iter().find(|p| p.id == id)
+    }
+
+    fn value(&self, params: &Params, id: &str) -> f32 {
+        params
+            .get(id)
+            .copied()
+            .or_else(|| self.param(id).map(|p| p.default))
+            .unwrap_or(0.0)
+    }
+
+    /// Evaluate all sliders and macro layers into target weights.
+    pub fn evaluate(&self, params: &Params) -> TargetWeights {
+        let mut out = TargetWeights::new();
+        for s in &self.sliders {
+            s.apply(self.value(params, s.id()), &mut out);
+        }
+        for layer in &self.layers {
+            let scale = match &layer.gain {
+                Gain::One => 1.0,
+                Gain::Constant(c) => *c,
+                Gain::Positive(id) => self.value(params, id).max(0.0),
+                Gain::Negative(id) => (-self.value(params, id)).max(0.0),
+            };
+            let values: Vec<f32> = layer
+                .grid
+                .axes
+                .iter()
+                .map(|a| self.value(params, &a.id))
+                .collect();
+            layer.grid.apply_scaled(&values, scale, &mut out);
+        }
+        out
+    }
+
+    /// Names of every target a parameter can influence (for UI highlighting).
+    pub fn targets_for(&self, id: &str) -> Vec<&str> {
+        let mut t: Vec<&str> = Vec::new();
+        for s in &self.sliders {
+            match s {
+                Slider::Unipolar { id: sid, target } if sid == id => t.push(target),
+                Slider::Bipolar {
+                    id: sid,
+                    negative,
+                    positive,
+                } if sid == id => t.extend([negative.as_str(), positive.as_str()]),
+                _ => {}
+            }
+        }
+        for layer in &self.layers {
+            let gain_param = match &layer.gain {
+                Gain::Positive(g) | Gain::Negative(g) => Some(g.as_str()),
+                _ => None,
+            };
+            if gain_param == Some(id) || layer.grid.axes.iter().any(|a| a.id == id) {
+                t.extend(layer.grid.corners.iter().map(|(_, n)| n.as_str()));
+            }
+        }
+        t.sort_unstable();
+        t.dedup();
+        t
     }
 }
 
@@ -151,6 +279,65 @@ pub fn resolve(mesh: &MorphableMesh, weights: &TargetWeights) -> (Vec<f32>, Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_applies_gains_and_defaults() {
+        let axis = |id: &str| MacroAxis {
+            id: id.into(),
+            stops: vec![0.0, 1.0],
+        };
+        let cat = Catalog {
+            params: vec![
+                ParamDef {
+                    id: "gender".into(),
+                    label: "Gender".into(),
+                    group: vec![],
+                    min: 0.0,
+                    max: 1.0,
+                    default: 0.5,
+                    mirror: None,
+                    ends: None,
+                },
+                ParamDef {
+                    id: "height".into(),
+                    label: "Height".into(),
+                    group: vec![],
+                    min: -1.0,
+                    max: 1.0,
+                    default: 0.0,
+                    mirror: None,
+                    ends: None,
+                },
+            ],
+            sliders: vec![],
+            layers: vec![
+                MacroLayer {
+                    grid: MacroGrid {
+                        axes: vec![axis("gender")],
+                        corners: vec![(vec![0], "f".into()), (vec![1], "m".into())],
+                    },
+                    gain: Gain::Constant(0.5),
+                },
+                MacroLayer {
+                    grid: MacroGrid {
+                        axes: vec![axis("gender")],
+                        corners: vec![(vec![1], "m_tall".into())],
+                    },
+                    gain: Gain::Positive("height".into()),
+                },
+            ],
+        };
+        let mut p = cat.defaults();
+        let w = cat.evaluate(&p);
+        assert_eq!((w["f"], w["m"]), (0.25, 0.25));
+        assert!(!w.contains_key("m_tall"));
+        p.insert("height".into(), 0.5);
+        p.insert("gender".into(), 1.0);
+        let w = cat.evaluate(&p);
+        assert_eq!(w["m_tall"], 0.5);
+        assert_eq!(cat.targets_for("height"), vec!["m_tall"]);
+        assert_eq!(cat.targets_for("gender"), vec!["f", "m", "m_tall"]);
+    }
 
     #[test]
     fn bipolar_picks_one_side_and_clamps() {
