@@ -22,6 +22,14 @@ pub struct UiState {
     pub styled: bool,
     pub export_requested: bool,
     pub export: oxy_io::export::ExportOptions,
+    pub right_mode: RightMode,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum RightMode {
+    #[default]
+    Morph,
+    Pose,
 }
 
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -177,12 +185,13 @@ pub fn ui_system(
                     ed.bridge.open_dialog = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    for (label, enabled) in [("Pose", false), ("Material", false), ("Morph", true)]
-                    {
-                        let b = egui::Button::selectable(enabled, label)
-                            .min_size(Vec2::new(70.0, 24.0));
-                        ui.add_enabled(enabled, b)
-                            .on_disabled_hover_text("Planned for a later milestone");
+                    for (label, mode) in [("Pose", Some(RightMode::Pose)), ("Material", None), ("Morph", Some(RightMode::Morph))] {
+                        let selected = mode == Some(state.right_mode);
+                        let b = egui::Button::selectable(selected, label).min_size(Vec2::new(70.0, 24.0));
+                        let r = ui.add_enabled(mode.is_some(), b).on_disabled_hover_text("Planned for a later milestone");
+                        if let (true, Some(m)) = (r.clicked(), mode) {
+                            state.right_mode = m;
+                        }
                     }
                 });
             });
@@ -250,9 +259,16 @@ pub fn ui_system(
         .default_size(330.0)
         .resizable(true)
         .frame(Frame::NONE.fill(PANEL))
-        .show(&mut root, |ui| {
-            panel_header(ui, "Morph");
-            morph_panel(ui, ed);
+        .show(&mut root, |ui| match state.right_mode {
+            RightMode::Morph => {
+                panel_header(ui, "Morph");
+                morph_panel(ui, ed);
+            }
+            RightMode::Pose => {
+                panel_header(ui, "Pose & Export");
+                let st = &mut *state;
+                pose_panel(ui, ed, &mut st.export, &mut st.export_requested);
+            }
         });
 
     // ── Center: viewport overlay ──────────────────────────────────────
@@ -807,4 +823,62 @@ fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
         ed.bridge.pending = None;
         ed.status = "Import cancelled".into();
     }
+}
+
+fn pose_panel(
+    ui: &mut egui::Ui,
+    ed: &mut Editor,
+    export: &mut oxy_io::export::ExportOptions,
+    export_requested: &mut bool,
+) {
+    use oxy_io::export::BindPose;
+    Frame::NONE.inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+        let Some(rig) = &ed.asset.rig else {
+            ui.label(RichText::new("This character has no skeleton. Rebuild the bundle with tools/fetch-assets.sh.").color(TEXT_DIM));
+            return;
+        };
+        ui.label(RichText::new(format!("{} · {} bones", rig.name, rig.bones.len())).size(11.5).color(TEXT_DIM));
+        ui.add_space(6.0);
+        ui.label(RichText::new("Preview pose").strong());
+        ui.label(RichText::new("The skeleton refits to every morph; poses only affect the viewport unless exported as the bind pose.").size(11.0).color(TEXT_DIM));
+        ui.add_space(4.0);
+        let mut chosen = None;
+        ui.horizontal_wrapped(|ui| {
+            for (i, p) in oxy_rig::pose::PRESETS.iter().enumerate() {
+                if ui.add(egui::Button::selectable(ed.pose == i, p.name).min_size(Vec2::new(96.0, 26.0))).clicked() {
+                    chosen = Some(i);
+                }
+            }
+        });
+        if let Some(i) = chosen {
+            ed.set_pose(i);
+        }
+        ui.add_space(4.0);
+        ui.checkbox(&mut ed.show_skeleton, "Show skeleton");
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.label(RichText::new("Export (.glb)").strong());
+        ui.add_space(2.0);
+        ui.checkbox(&mut export.skeleton, "Skeleton and skin weights");
+        ui.add_enabled_ui(export.skeleton, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Bind pose");
+                ui.selectable_value(&mut export.bind_pose, BindPose::Rest, "Rest (A-pose)");
+                ui.selectable_value(&mut export.bind_pose, BindPose::TPose, "T-pose");
+            });
+        });
+        ui.checkbox(&mut export.blendshapes, "Sculpted morphs as blendshapes")
+            .on_hover_text("Off: sculpts are baked into the mesh. On: each sculpt becomes a named morph target at its current weight.");
+        let accessories = ed.accessories.iter().filter(|a| a.visible).count();
+        ui.label(
+            RichText::new(format!("Includes the body{}.", if accessories > 0 { format!(" and {accessories} accessory mesh(es), skinned to the nearest body vertex") } else { String::new() }))
+                .size(11.0)
+                .color(TEXT_DIM),
+        );
+        ui.add_space(6.0);
+        if ui.add(egui::Button::new("⬇ Export .glb").min_size(Vec2::new(140.0, 28.0))).clicked() {
+            *export_requested = true;
+        }
+    });
 }

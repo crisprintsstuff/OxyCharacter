@@ -4,6 +4,7 @@
 //! oxycharacter [--bundle PATH] [--set id=value ...] [--select "Top/Sub"]
 //!              [--hover PARAM_ID] [--head] [--size WxH]
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
+//!              [--pose NAME] [--skeleton] [--pose-tab]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
@@ -43,6 +44,9 @@ struct Args {
     import_oxb: Option<PathBuf>,
     apply_import: bool,
     send_oxybrush: bool,
+    pose: Option<String>,
+    skeleton: bool,
+    pose_tab: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -78,6 +82,9 @@ fn parse_args() -> Result<Args, String> {
             "--import-oxb" => a.import_oxb = Some(val()?.into()),
             "--apply-import" => a.apply_import = true,
             "--send-oxybrush" => a.send_oxybrush = true,
+            "--pose" => a.pose = Some(val()?),
+            "--skeleton" => a.skeleton = true,
+            "--pose-tab" => a.pose_tab = true,
             "-h" | "--help" => return Err("see crate docs: oxycharacter [--bundle PATH] [--set id=v] [--select Top/Sub] [--hover ID] [--head] [--size WxH] [--import-oxb FILE [--apply-import]] [--screenshot out.png [--frames N]]".into()),
             other => return Err(format!("unknown argument {other}")),
         }
@@ -204,6 +211,20 @@ fn main() -> ExitCode {
         editor.selected = sel;
     }
     editor.pinned_hover = args.hover.clone();
+    if let Some(name) = &args.pose {
+        match oxy_rig::pose::PRESETS
+            .iter()
+            .position(|p| p.name.eq_ignore_ascii_case(name))
+        {
+            Some(i) => editor.set_pose(i),
+            None => {
+                let names: Vec<_> = oxy_rig::pose::PRESETS.iter().map(|p| p.name).collect();
+                eprintln!("unknown pose {name}; one of {names:?}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    editor.show_skeleton = args.skeleton;
     if args.send_oxybrush {
         // Scripted runs never start other programs.
         editor.bridge.launch = false;
@@ -238,14 +259,21 @@ fn main() -> ExitCode {
         .insert_resource(editor)
         .insert_resource(CharacterHeight(1.7))
         .insert_resource(ViewportRect::default())
-        .insert_resource(UiState::default())
+        .insert_resource(UiState {
+            right_mode: if args.pose_tab {
+                ui::RightMode::Pose
+            } else {
+                ui::RightMode::Morph
+            },
+            ..Default::default()
+        })
         .insert_resource(Automation {
             screenshot: args.screenshot,
             frames: args.frames,
             frame: 0,
             head: args.head,
         })
-        .add_systems(Startup, scene::setup)
+        .add_systems(Startup, (scene::setup, scene::configure_gizmos))
         .add_systems(EguiPrimaryContextPass, ui::ui_system)
         .add_systems(
             Update,
@@ -257,6 +285,7 @@ fn main() -> ExitCode {
                 bridge::watch,
                 bridge::file_drop,
                 scene::sync_accessories,
+                scene::draw_skeleton,
                 automation,
             )
                 .chain(),

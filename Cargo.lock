@@ -3745,6 +3745,7 @@ dependencies = [
  "oxy-io",
  "oxy-mesh",
  "oxy-morph",
+ "oxy-rig",
 ]
 
 [[package]]

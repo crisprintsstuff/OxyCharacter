@@ -168,7 +168,18 @@ Each milestone ends with something demoable and tested.
 - Next: transfer detail above the base resolution (normal/displacement maps, M4), fit accessories
   to body changes (M5), and an optional "Send to OxyCharacter" button on the OxyBrush side.
 
-### M2 — Rigged & exportable (weeks 4–6)
+### M2 — Rigged & exportable (weeks 4–6) ✅ *implemented*
+Done: CC0 MakeHuman default skeleton (163 bones) and weights imported; joints
+anchored to body vertices and *aux points* (helper vertices the targets move),
+so the skeleton refits exactly to every morph (sculpts derive aux motion from
+nearby body vertices); bone orientation (+Y along the bone, roll from roll
+planes); pose presets with CPU skinning and a skeleton overlay; skinned glTF
+with T-pose bind option, blendshapes for sculpted morphs and skinned
+accessories. Validated with the Khronos glTF validator and three.js.
+Not yet: checks in Blender/Godot/Unity/Unreal, a reduced game skeleton
+option, corrective shapes, dual-quaternion skinning, interactive posing.
+
+Original plan:
 - Joint anchors authored for the base mesh; refit on every slider change.
 - Skin weights, skinning in the viewport, a T/A-pose toggle and a few test poses.
 - glTF export with skeleton, inverse bind matrices, skin weights, and morph targets.

@@ -45,6 +45,30 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
+## Rig, poses and export
+
+The character carries a 163-bone skeleton (the CC0 MakeHuman default rig:
+body, fingers, toes and face) that **refits to every morph**: joints are
+averages of points that the morph targets move, including sculpts brought
+back from OxyBrush.
+
+- **Pose tab** (top right): preview poses (*Rest/A-pose, T-pose, Relaxed,
+  Wave, Stride*) with linear-blend skinning, and *Show skeleton*.
+- **Export (.glb)**: skeleton + skin weights (4 per vertex), bind pose
+  *Rest* or *T-pose*, sculpted morphs baked or as named **blendshapes**,
+  accessories skinned by nearest-vertex weight transfer.
+
+![Wave pose with the skeleton overlay](docs/images/pose-wave-skeleton.png)
+
+Exports pass the Khronos glTF validator with no errors or warnings, and load
+and deform in three.js. They have not yet been tried in Blender, Godot, Unity
+or Unreal.
+
+```sh
+oxy export assets/generated/makehuman.oxyb hero.glb --tpose gender=1 muscle=0.7
+oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/morphs
+```
+
 ## Sculpting in OxyBrush
 
 OxyCharacter round-trips with [OxyBrush](https://github.com/crisprintsstuff/OxyBrush)
@@ -64,7 +88,9 @@ You can also import any `.oxb` with **Import .oxb** or by dropping it on the win
 How it works: OxyBrush re-sorts vertices when it loads a mesh, so OxyCharacter
 recovers the vertex correspondence from mesh connectivity (≈30–60 ms for the
 13k-vertex body) and measures the sculpt against the body it sent (parameters
-are kept in a `.oxylink.json` file next to the `.oxb`). Sculpting on
+are kept in a `.oxylink.json` file next to the `.oxb`). Files saved by OxyBrush ≥ 2.5.8 carry a vertex map (`VMAP`) that gives the
+correspondence exactly; it is checked against the topology and the matcher is
+the fallback. Sculpting on
 **subdivision levels** (Ctrl+D in OxyBrush) is fine: level 0 becomes the
 morph; detail finer than the base mesh stays in OxyBrush for now. Remeshing or
 destructive subdivision changes the topology, so such a body can only come
@@ -88,13 +114,14 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | M0 foundations | ✅ |
 | M1 see a human (import, bundle, editor, static glTF export) | ✅ |
 | OxyBrush bridge (send, live re-import as morphs/accessories) | ✅ |
-| M2 rigged & exportable | next |
+| M2 rigged & exportable (skeleton refit, poses, skinned glTF, T-pose bind, blendshapes) | ✅ |
+| M3 project files & UX | next |
 
 | Crate | What it does |
 |---|---|
 | `oxy-mesh` | Mesh, sparse morph targets, blending, normals, topology correspondence |
 | `oxy-morph` | Sliders, macro grids with gains, parameter catalog |
-| `oxy-rig` | Skeleton with vertex-anchor joint refitting |
+| `oxy-rig` | Joints anchored to body/aux points, bones, posing, skinning, weight transfer, pose presets |
 | `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
 | `oxy-cli` | `oxy` command-line tool |
 | `oxy-app` | Bevy + egui editor (`oxycharacter`) |

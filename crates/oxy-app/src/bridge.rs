@@ -29,6 +29,8 @@ pub struct PendingImport {
 pub struct AccessoryItem {
     pub acc: Accessory,
     pub visible: bool,
+    /// Bone influences transferred from the body (computed on first pose).
+    pub influences: Option<Vec<oxy_rig::Influence>>,
 }
 
 pub struct Bridge {
@@ -274,6 +276,7 @@ impl Editor {
                     self.accessories.push(AccessoryItem {
                         acc: a,
                         visible: true,
+                        influences: None,
                     });
                     accs += 1;
                 }

@@ -42,6 +42,15 @@ pub struct Editor {
     pub accessories: Vec<crate::bridge::AccessoryItem>,
     /// Set when accessory meshes must be re-spawned.
     pub accessories_dirty: bool,
+    /// Index into `oxy_rig::pose::PRESETS` (0 = rest pose).
+    pub pose: usize,
+    pub show_skeleton: bool,
+    /// Posed bone segments (head, tail) for the overlay.
+    pub skeleton_lines: Vec<([f32; 3], [f32; 3])>,
+    /// Skinning matrices of the current pose (empty in the rest pose).
+    pub skin_mats: Vec<oxy_io::glam::Mat4>,
+    /// Last evaluated body in the rest pose (for accessory weight transfer).
+    pub rest_body: Vec<oxy_io::glam::Vec3>,
 }
 
 /// Category tree for a catalog, in the preferred top-level order.
@@ -95,7 +104,52 @@ impl Editor {
             bridge: crate::bridge::Bridge::new(user_dir),
             accessories: Vec::new(),
             accessories_dirty: false,
+            pose: 0,
+            show_skeleton: false,
+            skeleton_lines: Vec::new(),
+            skin_mats: Vec::new(),
+            rest_body: Vec::new(),
         }
+    }
+
+    pub fn set_pose(&mut self, index: usize) {
+        if index < oxy_rig::pose::PRESETS.len() && index != self.pose {
+            self.pose = index;
+            self.dirty = true;
+            self.status = format!("Pose: {}", oxy_rig::pose::PRESETS[index].name);
+        }
+    }
+
+    /// Pose the evaluated body; updates the skeleton overlay and skinning matrices.
+    pub fn apply_pose(
+        &mut self,
+        ev: &oxy_io::Evaluated,
+        normals: &[oxy_io::glam::Vec3],
+    ) -> (Vec<oxy_io::glam::Vec3>, Vec<oxy_io::glam::Vec3>) {
+        use oxy_io::glam::{Mat4, Vec3};
+        self.skeleton_lines.clear();
+        self.skin_mats.clear();
+        let Some(rig) = &self.asset.rig else {
+            return (ev.body.clone(), normals.to_vec());
+        };
+        let bind = rig.bind_matrices(&ev.joints);
+        let local = oxy_rig::pose::solve(rig, &bind, &oxy_rig::pose::PRESETS[self.pose]);
+        let posed = rig.pose_matrices(&bind, &local);
+        for (i, b) in rig.bones.iter().enumerate() {
+            let len = ev.joints[b.head].distance(ev.joints[b.tail]);
+            let head = posed[i].w_axis.truncate();
+            let tail = posed[i].transform_point3(Vec3::Y * len);
+            self.skeleton_lines.push((head.to_array(), tail.to_array()));
+        }
+        if self.pose == 0 {
+            return (ev.body.clone(), normals.to_vec());
+        }
+        self.skin_mats = posed
+            .iter()
+            .zip(&bind)
+            .map(|(p, b)| *p * b.inverse())
+            .collect::<Vec<Mat4>>();
+        oxy_rig::skin_with(&rig.skin, &ev.body, normals, &self.skin_mats)
     }
 
     pub fn value(&self, id: &str) -> f32 {

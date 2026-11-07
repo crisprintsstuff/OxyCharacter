@@ -194,14 +194,12 @@ pub fn update_character(
             .iter()
             .filter(|w| w.abs() >= oxy_mesh::WEIGHT_EPSILON)
             .count();
-        let mut pos = ed.asset.mesh.evaluate(&dense);
-        // Stand on the floor.
-        let (lo, hi) = oxy_io::makehuman::bounds(&pos);
-        for p in &mut pos {
-            p.y -= lo.y;
-        }
+        // Morphed, floor-standing body + joints, then the selected pose.
+        let ev = ed.asset.evaluate_full(&ed.params);
+        let (lo, hi) = oxy_io::makehuman::bounds(&ev.body);
         height.0 = hi.y - lo.y;
-        let normals = ed.asset.mesh.base.compute_normals(&pos);
+        let rest_normals = ed.asset.mesh.base.compute_normals(&ev.body);
+        let (pos, normals) = ed.apply_pose(&ev, &rest_normals);
         mesh.insert_attribute(
             Mesh::ATTRIBUTE_POSITION,
             pos.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
@@ -210,6 +208,11 @@ pub fn update_character(
             Mesh::ATTRIBUTE_NORMAL,
             normals.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
         );
+        ed.rest_body = ev.body;
+        // Accessories follow the pose.
+        if !ed.accessories.is_empty() {
+            ed.accessories_dirty = true;
+        }
         ed.dirty = false;
     }
 
@@ -324,20 +327,35 @@ pub fn sync_accessories(
     for e in &existing {
         commands.entity(e).despawn();
     }
-    for item in editor.accessories.iter().filter(|a| a.visible) {
-        let a = &item.acc;
-        let flat: Vec<u32> = a.triangles.iter().flatten().copied().collect();
-        let Ok(m) = oxy_mesh::Mesh::new(a.positions.clone(), flat.clone()) else {
+    let ed = &mut *editor;
+    for item in ed.accessories.iter_mut().filter(|a| a.visible) {
+        let flat: Vec<u32> = item.acc.triangles.iter().flatten().copied().collect();
+        let Ok(m) = oxy_mesh::Mesh::new(item.acc.positions.clone(), flat.clone()) else {
             continue;
         };
-        let normals = m.compute_normals(&a.positions);
+        let mut positions = item.acc.positions.clone();
+        let mut normals = m.compute_normals(&positions);
+        // Follow the current pose using weights transferred from the body.
+        if let (Some(rig), false) = (&ed.asset.rig, ed.skin_mats.is_empty()) {
+            if item.influences.is_none() && !ed.rest_body.is_empty() {
+                item.influences = Some(oxy_rig::transfer_nearest(
+                    &ed.rest_body,
+                    &rig.skin,
+                    &positions,
+                ));
+            }
+            if let Some(inf) = &item.influences {
+                (positions, normals) = oxy_rig::skin_with(inf, &positions, &normals, &ed.skin_mats);
+            }
+        }
+        let a = &item.acc;
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::default(),
         );
         mesh.insert_attribute(
             Mesh::ATTRIBUTE_POSITION,
-            a.positions.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+            positions.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
         );
         mesh.insert_attribute(
             Mesh::ATTRIBUTE_NORMAL,
@@ -364,5 +382,25 @@ pub fn sync_accessories(
                 ..default()
             })),
         ));
+    }
+}
+
+/// Draw the posed skeleton on top of the character.
+/// Gizmos draw on top of the mesh, slightly thicker than the default.
+pub fn configure_gizmos(mut store: ResMut<GizmoConfigStore>) {
+    let (config, _) = store.config_mut::<DefaultGizmoConfigGroup>();
+    config.depth_bias = -1.0;
+    config.line.width = 2.0;
+}
+
+pub fn draw_skeleton(editor: Res<Editor>, mut gizmos: Gizmos) {
+    if !editor.show_skeleton {
+        return;
+    }
+    let color = Color::srgb(1.0, 0.72, 0.2);
+    for (a, b) in &editor.skeleton_lines {
+        let (a, b) = (Vec3::from_array(*a), Vec3::from_array(*b));
+        gizmos.line(a, b, color);
+        gizmos.sphere(Isometry3d::from_translation(a), 0.006, color);
     }
 }
