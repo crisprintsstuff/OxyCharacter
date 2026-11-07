@@ -45,6 +45,30 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
+## Projects, undo and autosave
+
+- **File › New / Open / Open recent / Save / Save as** — projects are small,
+  human-readable JSON files (`.oxyc`): only the sliders you changed, skin,
+  pose and export options, plus any sculpted morphs and accessories, so a
+  project is self-contained. A fingerprint of the base mesh guards against
+  opening a project on a different body (sculpts are then skipped with a note).
+- **Undo / redo** for every edit; a slider drag is one step.
+- The title shows `*` for unsaved changes; New, Open and closing the window
+  ask before discarding them.
+- **Autosave** every minute while there are unsaved changes; after a crash
+  the next start offers to recover.
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo |
+| Ctrl+S / Ctrl+Shift+S | Save / save as |
+| Ctrl+O / Ctrl+N | Open / new |
+
+File paths are typed into a small dialog for now (with recent files); native
+file dialogs are planned.
+
+![Unsaved-changes prompt after reopening and editing a project](docs/images/project-unsaved-prompt.png)
+
 ## Rig, poses and export
 
 The character carries a 163-bone skeleton (the CC0 MakeHuman default rig:
@@ -115,7 +139,8 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | M1 see a human (import, bundle, editor, static glTF export) | ✅ |
 | OxyBrush bridge (send, live re-import as morphs/accessories) | ✅ |
 | M2 rigged & exportable (skeleton refit, poses, skinned glTF, T-pose bind, blendshapes) | ✅ |
-| M3 project files & UX | next |
+| M3 project files, undo/redo, autosave & recovery | ✅ |
+| M4 materials | next |
 
 | Crate | What it does |
 |---|---|
@@ -123,6 +148,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | `oxy-morph` | Sliders, macro grids with gains, parameter catalog |
 | `oxy-rig` | Joints anchored to body/aux points, bones, posing, skinning, weight transfer, pose presets |
 | `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
+| `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |
 | `oxy-cli` | `oxy` command-line tool |
 | `oxy-app` | Bevy + egui editor (`oxycharacter`) |
 

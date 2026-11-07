@@ -51,6 +51,9 @@ pub struct Editor {
     pub skin_mats: Vec<oxy_io::glam::Mat4>,
     /// Last evaluated body in the rest pose (for accessory weight transfer).
     pub rest_body: Vec<oxy_io::glam::Vec3>,
+    pub export: oxy_io::export::ExportOptions,
+    /// Document session (undo, file, autosave); set by `init_session`.
+    pub session: Option<crate::document::Session>,
 }
 
 /// Category tree for a catalog, in the preferred top-level order.
@@ -109,6 +112,8 @@ impl Editor {
             skeleton_lines: Vec::new(),
             skin_mats: Vec::new(),
             rest_body: Vec::new(),
+            export: oxy_io::export::ExportOptions::default(),
+            session: None,
         }
     }
 

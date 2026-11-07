@@ -3745,7 +3745,9 @@ dependencies = [
  "oxy-io",
  "oxy-mesh",
  "oxy-morph",
+ "oxy-project",
  "oxy-rig",
+ "serde_json",
 ]
 
 [[package]]
@@ -3789,6 +3791,19 @@ dependencies = [
  "glam 0.29.3",
  "oxy-mesh",
  "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "oxy-project"
+version = "0.1.0"
+dependencies = [
+ "glam 0.29.3",
+ "oxy-io",
+ "oxy-mesh",
+ "oxy-morph",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

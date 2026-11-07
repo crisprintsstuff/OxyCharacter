@@ -16,6 +16,7 @@ oxy-mesh = { path = "crates/oxy-mesh" }
 oxy-morph = { path = "crates/oxy-morph" }
 oxy-rig = { path = "crates/oxy-rig" }
 oxy-io = { path = "crates/oxy-io" }
+oxy-project = { path = "crates/oxy-project" }
 
 # Keep dependency-heavy crates fast in dev builds (morph evaluation, Bevy).
 [profile.dev.package."*"]

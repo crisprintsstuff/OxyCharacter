@@ -55,7 +55,7 @@ pub fn read_link(oxb: &Path) -> Option<Link> {
 }
 
 /// A mesh carried alongside the body.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Accessory {
     pub name: String,
     pub positions: Vec<Vec3>,
@@ -202,7 +202,7 @@ pub fn vmap_correspondence(
 
 /// A user morph saved as a sparse target file (`<id>.target`) whose header
 /// carries the label: `# oxycharacter-morph label=<label>`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CustomMorph {
     pub id: String,
     pub label: String,

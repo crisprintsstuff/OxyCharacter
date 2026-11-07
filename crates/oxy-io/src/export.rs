@@ -12,7 +12,7 @@ use crate::gltf::{write_glb_scene, ExportMesh, ExportMorph, ExportSkeleton};
 use crate::oxybrush::{Accessory, CUSTOM_PREFIX};
 use crate::{CharacterAsset, Result};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum BindPose {
     /// As modelled (an A-pose for the MakeHuman base).
     #[default]
@@ -21,14 +21,16 @@ pub enum BindPose {
     TPose,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ExportOptions {
     /// Include the skeleton and skin weights (when the asset has a rig).
     pub skeleton: bool,
     pub bind_pose: BindPose,
     /// Export sculpted (custom) morphs as blendshapes instead of baking them.
     pub blendshapes: bool,
-    /// Linear RGB skin color.
+    /// Linear RGB skin color (set by the caller; projects store skin separately).
+    #[serde(skip)]
     pub skin_color: [f32; 3],
 }
 

@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, StrokeKind, Vec2};
 
+use crate::document::{After, PathDialog};
 use crate::editor::{self, split_group, Editor, Preset, PRESETS, SKIN_TONES};
 use crate::scene::{CharacterHeight, Orbit, ViewportRect};
 
@@ -21,7 +22,6 @@ pub struct UiState {
     pub pointer_busy: bool,
     pub styled: bool,
     pub export_requested: bool,
-    pub export: oxy_io::export::ExportOptions,
     pub right_mode: RightMode,
 }
 
@@ -80,7 +80,6 @@ pub fn ui_system(
     mut orbit: ResMut<Orbit>,
     height: Res<CharacterHeight>,
     diagnostics: Res<Time>,
-    mut exit: MessageWriter<AppExit>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     if !state.styled {
@@ -96,6 +95,7 @@ pub fn ui_system(
     );
     let ed = &mut *editor;
     let previous_hover = ed.hovered.take();
+    shortcuts(&ctx, ed);
 
     // ── Menu + toolbar ────────────────────────────────────────────────
     egui::Panel::top("menu")
@@ -105,6 +105,41 @@ pub fn ui_system(
                 ui.label(RichText::new("OxyCharacter").strong().color(ACCENT));
                 ui.separator();
                 egui::containers::menu::MenuButton::new("File").ui(ui, |ui| {
+                    if ui
+                        .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
+                        .clicked()
+                    {
+                        ed.request(After::New);
+                    }
+                    if ui
+                        .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
+                        .clicked()
+                    {
+                        open_dialog(ed, PathDialog::Open);
+                    }
+                    let recent = ed.session().recent.clone();
+                    ui.add_enabled_ui(!recent.is_empty(), |ui| {
+                        egui::containers::menu::MenuButton::new("Open recent").ui(ui, |ui| {
+                            for p in recent {
+                                if ui.button(p.display().to_string()).clicked() {
+                                    ed.request(After::Open(p));
+                                }
+                            }
+                        });
+                    });
+                    if ui
+                        .add(egui::Button::new("Save").shortcut_text("Ctrl+S"))
+                        .clicked()
+                    {
+                        ed.save_or_ask();
+                    }
+                    if ui
+                        .add(egui::Button::new("Save as…").shortcut_text("Ctrl+Shift+S"))
+                        .clicked()
+                    {
+                        open_dialog(ed, PathDialog::SaveAs);
+                    }
+                    ui.separator();
                     if ui.button("Send to OxyBrush").clicked() {
                         ed.send_to_oxybrush();
                     }
@@ -117,10 +152,34 @@ pub fn ui_system(
                     }
                     ui.separator();
                     if ui.button("Quit").clicked() {
-                        exit.write(AppExit::Success);
+                        ed.request(After::Quit);
                     }
                 });
                 egui::containers::menu::MenuButton::new("Edit").ui(ui, |ui| {
+                    let h = &ed.session().history;
+                    let undo = h.undo_label().map(|l| format!("Undo {l}"));
+                    let redo = h.redo_label().map(|l| format!("Redo {l}"));
+                    if ui
+                        .add_enabled(
+                            undo.is_some(),
+                            egui::Button::new(undo.unwrap_or("Undo".into()))
+                                .shortcut_text("Ctrl+Z"),
+                        )
+                        .clicked()
+                    {
+                        ed.undo();
+                    }
+                    if ui
+                        .add_enabled(
+                            redo.is_some(),
+                            egui::Button::new(redo.unwrap_or("Redo".into()))
+                                .shortcut_text("Ctrl+Shift+Z"),
+                        )
+                        .clicked()
+                    {
+                        ed.redo();
+                    }
+                    ui.separator();
                     if ui.button("Reset all morphs").clicked() {
                         ed.reset_all();
                     }
@@ -266,8 +325,7 @@ pub fn ui_system(
             }
             RightMode::Pose => {
                 panel_header(ui, "Pose & Export");
-                let st = &mut *state;
-                pose_panel(ui, ed, &mut st.export, &mut st.export_requested);
+                pose_panel(ui, ed, &mut state.export_requested);
             }
         });
 
@@ -305,6 +363,7 @@ pub fn ui_system(
     rect_res.max = bevy::math::Vec2::new(r.max.x, r.max.y);
 
     bridge_windows(&ctx, ed);
+    document_windows(&ctx, ed);
 
     state.pointer_busy = ctx.egui_is_using_pointer();
     if ed.hovered.is_none() {
@@ -825,12 +884,7 @@ fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
     }
 }
 
-fn pose_panel(
-    ui: &mut egui::Ui,
-    ed: &mut Editor,
-    export: &mut oxy_io::export::ExportOptions,
-    export_requested: &mut bool,
-) {
+fn pose_panel(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
     use oxy_io::export::BindPose;
     Frame::NONE.inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
         let Some(rig) = &ed.asset.rig else {
@@ -860,6 +914,7 @@ fn pose_panel(
         ui.separator();
         ui.label(RichText::new("Export (.glb)").strong());
         ui.add_space(2.0);
+        let export = &mut ed.export;
         ui.checkbox(&mut export.skeleton, "Skeleton and skin weights");
         ui.add_enabled_ui(export.skeleton, |ui| {
             ui.horizontal(|ui| {
@@ -881,4 +936,182 @@ fn pose_panel(
             *export_requested = true;
         }
     });
+}
+
+fn open_dialog(ed: &mut Editor, kind: PathDialog) {
+    let path = match kind {
+        PathDialog::SaveAs => ed.default_project_path(),
+        PathDialog::Open => ed
+            .session()
+            .recent
+            .first()
+            .cloned()
+            .unwrap_or_else(|| ed.default_project_path()),
+    };
+    let s = ed.session.as_mut().expect("session");
+    s.path_input = path.display().to_string();
+    s.dialog = Some(kind);
+}
+
+fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
+    use egui::{Key, KeyboardShortcut, Modifiers};
+    if ctx.egui_wants_keyboard_input() {
+        return; // typing in a text field
+    }
+    let hit =
+        |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
+    let shift = Modifiers::COMMAND | Modifiers::SHIFT;
+    // Longer chords first, so Ctrl+Shift+Z isn't taken as Ctrl+Z.
+    if hit(shift, Key::Z) || hit(Modifiers::COMMAND, Key::Y) {
+        ed.redo();
+    } else if hit(Modifiers::COMMAND, Key::Z) {
+        ed.undo();
+    }
+    if hit(shift, Key::S) {
+        open_dialog(ed, PathDialog::SaveAs);
+    } else if hit(Modifiers::COMMAND, Key::S) {
+        ed.save_or_ask();
+    }
+    if hit(Modifiers::COMMAND, Key::O) {
+        open_dialog(ed, PathDialog::Open);
+    }
+    if hit(Modifiers::COMMAND, Key::N) {
+        ed.request(After::New);
+    }
+}
+
+fn document_windows(ctx: &egui::Context, ed: &mut Editor) {
+    // Open / Save as.
+    if let Some(kind) = ed.session().dialog {
+        let (title, button) = match kind {
+            PathDialog::Open => ("Open project", "Open"),
+            PathDialog::SaveAs => ("Save project as", "Save"),
+        };
+        let mut open = true;
+        let mut go = false;
+        let mut pick = None;
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("OxyCharacter project (.oxyc):");
+                let s = ed.session.as_mut().expect("session");
+                let r = ui.add(egui::TextEdit::singleline(&mut s.path_input).desired_width(460.0));
+                go = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if kind == PathDialog::Open && !s.recent.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Recent").size(11.0).color(TEXT_DIM));
+                    for p in &s.recent {
+                        if ui.link(p.display().to_string()).clicked() {
+                            pick = Some(p.clone());
+                        }
+                    }
+                }
+                ui.add_space(4.0);
+                go |= ui
+                    .add_enabled(!s.path_input.trim().is_empty(), egui::Button::new(button))
+                    .clicked();
+            });
+        let s = ed.session.as_mut().expect("session");
+        if let Some(p) = pick {
+            s.path_input = p.display().to_string();
+            go = true;
+        }
+        if go {
+            let path = std::path::PathBuf::from(s.path_input.trim());
+            s.dialog = None;
+            match kind {
+                PathDialog::Open => ed.request(After::Open(path)),
+                PathDialog::SaveAs => {
+                    if ed.save_project(&path) {
+                        if let Some(after) = ed.session.as_mut().and_then(|s| s.after_save.take()) {
+                            ed.perform(after);
+                        }
+                    }
+                }
+            }
+        } else if !open {
+            s.dialog = None;
+            s.after_save = None;
+        }
+    }
+
+    // Unsaved changes.
+    if let Some(after) = ed.session().confirm.clone() {
+        let what = match after {
+            After::New => "starting a new character",
+            After::Open(_) => "opening another project",
+            After::Quit => "quitting",
+        };
+        let mut answer: Option<Option<bool>> = None;
+        egui::Window::new("Unsaved changes")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Save changes to {} before {what}?",
+                    ed.session()
+                        .path
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map_or("Untitled".into(), |n| n.to_string_lossy().into_owned())
+                ));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        answer = Some(Some(true));
+                    }
+                    if ui.button("Don't save").clicked() {
+                        answer = Some(Some(false));
+                    }
+                    if ui.button("Cancel").clicked() {
+                        answer = Some(None);
+                    }
+                });
+            });
+        if let Some(a) = answer {
+            ed.resolve_confirm(a);
+        }
+    }
+
+    // Crash recovery.
+    if ed.session().recover.is_some() {
+        let mut answer = None;
+        egui::Window::new("Recover unsaved work?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO).show(ctx, |ui| {
+            ui.label("OxyCharacter didn't close normally last time. An autosave of your work is available.");
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Recover").clicked() {
+                    answer = Some(true);
+                }
+                if ui.button("Discard").clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+        if let Some(a) = answer {
+            ed.resolve_recover(a);
+        }
+    }
+
+    // Notes from opening a project.
+    if !ed.session().notes.is_empty() {
+        let mut close = false;
+        egui::Window::new("Opened with changes")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                for n in &ed.session().notes {
+                    ui.label(format!("ⓘ {n}"));
+                }
+                close = ui.button("OK").clicked();
+            });
+        if close {
+            ed.session.as_mut().expect("session").notes.clear();
+        }
+    }
 }

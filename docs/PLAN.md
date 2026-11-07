@@ -185,7 +185,17 @@ Original plan:
 - glTF export with skeleton, inverse bind matrices, skin weights, and morph targets.
 - Validate exports in Blender, Godot, Unity, and Unreal (glTF importer).
 
-### M3 — Project files & UX (weeks 7–8)
+### M3 — Project files & UX (weeks 7–8) ✅ *implemented*
+Done: `oxy-project` crate — `.oxyc` JSON projects (changed params only, skin,
+pose, export options, embedded sculpted morphs and accessories, base-mesh
+fingerprint, version + migration hook, atomic writes, reconcile with warnings);
+snapshot undo/redo (one step per finished edit, 200 steps); unsaved-changes
+tracking, prompts on New/Open/close, recent files, autosave every 60 s with
+crash recovery; keyboard shortcuts. JSON instead of RON: no extra dependency,
+equally diff-friendly.
+Not yet: native file dialogs, preset saving, slider favourites.
+
+Original plan:
 - `oxy-project`: save/load parameters (RON), asset references by stable IDs, schema versioning + migrations.
 - Undo/redo command stack; slider search; categories (face → nose → bridge…); symmetry toggle; presets/randomize.
 

@@ -4,11 +4,13 @@
 //! oxycharacter [--bundle PATH] [--set id=value ...] [--select "Top/Sub"]
 //!              [--hover PARAM_ID] [--head] [--size WxH]
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
-//!              [--pose NAME] [--skeleton] [--pose-tab]
+//!              [--pose NAME] [--skeleton] [--pose-tab] [--open FILE.oxyc]
+//!              [--save-as FILE.oxyc] [--close]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
 mod bridge;
+mod document;
 mod editor;
 mod scene;
 mod ui;
@@ -47,6 +49,9 @@ struct Args {
     pose: Option<String>,
     skeleton: bool,
     pose_tab: bool,
+    open: Option<PathBuf>,
+    save_as: Option<PathBuf>,
+    close: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -85,6 +90,9 @@ fn parse_args() -> Result<Args, String> {
             "--pose" => a.pose = Some(val()?),
             "--skeleton" => a.skeleton = true,
             "--pose-tab" => a.pose_tab = true,
+            "--open" => a.open = Some(val()?.into()),
+            "--save-as" => a.save_as = Some(val()?.into()),
+            "--close" => a.close = true,
             "-h" | "--help" => return Err("see crate docs: oxycharacter [--bundle PATH] [--set id=v] [--select Top/Sub] [--hover ID] [--head] [--size WxH] [--import-oxb FILE [--apply-import]] [--screenshot out.png [--frames N]]".into()),
             other => return Err(format!("unknown argument {other}")),
         }
@@ -99,6 +107,8 @@ struct Automation {
     frames: u32,
     frame: u32,
     head: bool,
+    save_as: Option<PathBuf>,
+    close: bool,
 }
 
 fn automation(
@@ -107,8 +117,19 @@ fn automation(
     mut orbit: ResMut<Orbit>,
     height: Res<CharacterHeight>,
     mut exit: MessageWriter<AppExit>,
+    mut editor: ResMut<Editor>,
 ) {
     auto.frame += 1;
+    if auto.frame == 5 {
+        if let Some(p) = auto.save_as.take() {
+            editor.save_project(&p);
+            println!("{}", editor.status);
+        }
+        if auto.close {
+            // Same path as the window's close button.
+            editor.request(document::After::Quit);
+        }
+    }
     if auto.frame == 3 {
         *orbit = if auto.head {
             Orbit::head(height.0)
@@ -142,7 +163,7 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
         .collect();
     let opts = oxy_io::export::ExportOptions {
         skin_color: ed.skin,
-        ..state.export.clone()
+        ..ed.export.clone()
     };
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -200,6 +221,13 @@ fn main() -> ExitCode {
         std::env::var_os("OXY_USER_DIR").map_or_else(|| PathBuf::from("user"), PathBuf::from);
     let mut editor = Editor::new(asset, &user_dir);
     editor.load_custom_morphs();
+    editor.init_session(&user_dir);
+    if let Some(p) = &args.open {
+        if !editor.open_project(p) {
+            eprintln!("{}", editor.status);
+            return ExitCode::FAILURE;
+        }
+    }
     for (k, v) in &args.sets {
         if editor.asset.catalog.param(k).is_none() {
             eprintln!("unknown param {k}");
@@ -253,6 +281,8 @@ fn main() -> ExitCode {
                 resolution: WindowResolution::new(args.size.0, args.size.1),
                 ..default()
             }),
+            // Closing asks about unsaved changes first (see document::close_requested).
+            close_when_requested: false,
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
@@ -269,6 +299,8 @@ fn main() -> ExitCode {
         })
         .insert_resource(Automation {
             screenshot: args.screenshot,
+            save_as: args.save_as.clone(),
+            close: args.close,
             frames: args.frames,
             frame: 0,
             head: args.head,
@@ -282,6 +314,8 @@ fn main() -> ExitCode {
                 scene::update_character,
                 scene::apply_camera,
                 export,
+                document::session_system,
+                document::close_requested,
                 bridge::watch,
                 bridge::file_drop,
                 scene::sync_accessories,
