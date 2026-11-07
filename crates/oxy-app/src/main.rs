@@ -127,66 +127,41 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
         return;
     }
     let ed = &mut *editor;
-    let (pos, _) = ed.asset.evaluate_grounded(&ed.params);
-    let normals = ed.asset.mesh.base.compute_normals(&pos);
-    let [r, g, b] = ed.skin;
-    let mut meshes = vec![oxy_io::gltf::ExportMesh {
-        name: "character",
-        positions: &pos,
-        normals: &normals,
-        indices: &ed.asset.mesh.base.indices,
-        base_color: [r, g, b, 1.0],
-        colors: None,
-    }];
-    // Accessory buffers must outlive the export call.
-    struct Extra<'a> {
-        acc: &'a oxy_io::oxybrush::Accessory,
-        indices: Vec<u32>,
-        normals: Vec<oxy_io::glam::Vec3>,
-        colors: Option<Vec<[f32; 4]>>,
-    }
-    let extra: Vec<Extra> = ed
+    let accessories: Vec<oxy_io::oxybrush::Accessory> = ed
         .accessories
         .iter()
         .filter(|a| a.visible)
-        .filter_map(|a| {
-            let indices: Vec<u32> = a.acc.triangles.iter().flatten().copied().collect();
-            let m = oxy_mesh::Mesh::new(a.acc.positions.clone(), indices.clone()).ok()?;
-            Some(Extra {
-                acc: &a.acc,
-                normals: m.compute_normals(&a.acc.positions),
-                colors: scene::accessory_colors(&a.acc),
-                indices,
-            })
-        })
+        .map(|a| a.acc.clone())
         .collect();
-    for x in &extra {
-        let [r, g, b] = if x.colors.is_some() {
-            [1.0; 3]
-        } else {
-            scene::ACCESSORY_CLAY
-        };
-        meshes.push(oxy_io::gltf::ExportMesh {
-            name: &x.acc.name,
-            positions: &x.acc.positions,
-            normals: &x.normals,
-            indices: &x.indices,
-            base_color: [r, g, b, 1.0],
-            colors: x.colors.as_deref(),
-        });
-    }
+    let opts = oxy_io::export::ExportOptions {
+        skin_color: ed.skin,
+        ..state.export.clone()
+    };
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let path = PathBuf::from(format!("exports/character-{stamp}.glb"));
     let result = std::fs::create_dir_all("exports")
         .map_err(oxy_io::IoError::from)
-        .and_then(|_| oxy_io::gltf::write_glb_scene(&meshes, BufWriter::new(File::create(&path)?)));
-    let msg = match result {
-        Ok(()) => format!("Exported {} ({} mesh(es))", path.display(), meshes.len()),
+        .and_then(|_| {
+            oxy_io::export::character_glb(
+                &ed.asset,
+                &ed.params,
+                &accessories,
+                &opts,
+                BufWriter::new(File::create(&path)?),
+            )
+        });
+    ed.status = match result {
+        Ok(st) => format!(
+            "Exported {} ({} mesh(es), {} bones, {} blendshape(s))",
+            path.display(),
+            st.meshes,
+            st.bones,
+            st.blendshapes
+        ),
         Err(e) => format!("Export failed: {e}"),
     };
-    ed.status = msg;
 }
 
 fn main() -> ExitCode {

@@ -21,6 +21,7 @@ pub struct UiState {
     pub pointer_busy: bool,
     pub styled: bool,
     pub export_requested: bool,
+    pub export: oxy_io::export::ExportOptions,
 }
 
 #[derive(Default, PartialEq, Clone, Copy)]

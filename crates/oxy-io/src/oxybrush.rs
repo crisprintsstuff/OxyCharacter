@@ -27,6 +27,9 @@ use serde::{Deserialize, Serialize};
 use crate::oxb::{self, Piece, Scene};
 use crate::{IoError, Result};
 
+/// Param/target id prefix of sculpted (custom) morphs.
+pub const CUSTOM_PREFIX: &str = "custom/";
+
 /// Name of the body piece in files we send.
 pub const BODY_PIECE: &str = "OxyCharacter Body";
 /// Vertex displacements below this (metres) are treated as unchanged.

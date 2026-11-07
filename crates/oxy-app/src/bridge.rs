@@ -7,12 +7,10 @@ use std::time::SystemTime;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
 use oxy_io::oxybrush::{self, Accessory, CustomMorph, Imported};
-use oxy_mesh::MorphTarget;
-use oxy_morph::{ParamDef, Slider};
 
 use crate::editor::Editor;
 
-pub const CUSTOM_PREFIX: &str = "custom/";
+pub use oxy_io::oxybrush::CUSTOM_PREFIX;
 
 /// One piece of an `.oxb` waiting for the user's decision.
 pub struct PendingItem {
@@ -80,38 +78,14 @@ impl Editor {
 
     /// Add (or replace) a custom morph slider backed by `m`.
     pub fn register_custom_morph(&mut self, m: &CustomMorph) {
-        let id = format!("{CUSTOM_PREFIX}{}", m.id);
-        self.remove_custom_param(&id);
-        let mut target = MorphTarget::new(id.clone(), m.indices.clone(), m.deltas.clone());
-        // Sculpts carry no joint-locator motion; derive it so the skeleton follows.
-        if let Some(rig) = &self.asset.rig {
-            let n = self.asset.mesh.base.vertex_count();
-            (target.aux_indices, target.aux_deltas) =
-                rig.derive_aux_deltas(n, &m.indices, &m.deltas);
-        }
-        self.asset.mesh.targets.push(target);
-        self.asset.catalog.sliders.push(Slider::Unipolar {
-            id: id.clone(),
-            target: id.clone(),
-        });
-        self.asset.catalog.params.push(ParamDef {
-            id,
-            label: m.label.clone(),
-            group: vec!["Custom".into(), "Sculpted".into()],
-            min: 0.0,
-            max: 1.0,
-            default: 0.0,
-            mirror: None,
-            ends: None,
-        });
+        let id = self.asset.add_custom_morph(m);
+        self.params.remove(&id);
         self.rebuild_categories();
         self.dirty = true;
     }
 
     fn remove_custom_param(&mut self, id: &str) {
-        self.asset.mesh.targets.retain(|t| t.name != id);
-        self.asset.catalog.sliders.retain(|s| s.id() != id);
-        self.asset.catalog.params.retain(|p| p.id != id);
+        self.asset.remove_param(id);
         self.params.remove(id);
     }
 

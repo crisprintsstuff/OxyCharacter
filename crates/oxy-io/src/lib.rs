@@ -5,12 +5,14 @@
 //! * [`makehuman`] — builds a [`CharacterAsset`] from the CC0 MakeHuman data set.
 //! * [`bundle`]    — our own compact binary container for a [`CharacterAsset`].
 //! * [`gltf`]      — glTF 2.0 binary (`.glb`) export.
+//! * [`export`]    — the character (+ accessories) as a rigged glTF.
 //! * [`oxb`]       — OxyBrush project files (`.oxb`), read and write.
 //! * [`oxybrush`]  — the OxyBrush bridge: send a character, bring sculpts back.
 
 pub use glam;
 
 pub mod bundle;
+pub mod export;
 pub mod gltf;
 pub mod makehuman;
 pub mod obj;
@@ -97,6 +99,43 @@ impl CharacterAsset {
             joints,
             ground_offset,
         }
+    }
+
+    /// Add (or replace) a sculpted morph as a 0..1 slider under Custom › Sculpted.
+    /// Returns its param id. Joint locators are moved along with the body so
+    /// the skeleton follows the sculpt.
+    pub fn add_custom_morph(&mut self, m: &oxybrush::CustomMorph) -> String {
+        let id = format!("{}{}", oxybrush::CUSTOM_PREFIX, m.id);
+        self.remove_param(&id);
+        let mut target =
+            oxy_mesh::MorphTarget::new(id.clone(), m.indices.clone(), m.deltas.clone());
+        if let Some(rig) = &self.rig {
+            (target.aux_indices, target.aux_deltas) =
+                rig.derive_aux_deltas(self.mesh.base.vertex_count(), &m.indices, &m.deltas);
+        }
+        self.mesh.targets.push(target);
+        self.catalog.sliders.push(oxy_morph::Slider::Unipolar {
+            id: id.clone(),
+            target: id.clone(),
+        });
+        self.catalog.params.push(oxy_morph::ParamDef {
+            id: id.clone(),
+            label: m.label.clone(),
+            group: vec!["Custom".into(), "Sculpted".into()],
+            min: 0.0,
+            max: 1.0,
+            default: 0.0,
+            mirror: None,
+            ends: None,
+        });
+        id
+    }
+
+    /// Remove a parameter together with its slider and (same-named) target.
+    pub fn remove_param(&mut self, id: &str) {
+        self.mesh.targets.retain(|t| t.name != id);
+        self.catalog.sliders.retain(|s| s.id() != id);
+        self.catalog.params.retain(|p| p.id != id);
     }
 
     pub fn triangles(&self) -> Vec<[u32; 3]> {

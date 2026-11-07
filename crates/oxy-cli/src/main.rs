@@ -3,7 +3,7 @@
 //! ```text
 //! oxy import-makehuman <makehuman/data dir> <out.oxyb>
 //! oxy info <bundle.oxyb>
-//! oxy export <bundle.oxyb> <out.glb> [param=value ...]
+//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--morphs DIR] [param=value ...]
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
 //! ```
@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use std::path::Path;
 
-use oxy_io::{bundle, gltf, makehuman, oxb, oxybrush, CharacterAsset};
+use oxy_io::{bundle, export, makehuman, oxb, oxybrush, CharacterAsset};
 
 fn load(path: &str) -> Result<CharacterAsset, String> {
     bundle::read(BufReader::new(
@@ -110,29 +110,37 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
-        ["export", path, out, params @ ..] => {
-            let a = load(path)?;
-            let values = parse_params(&a, params)?;
-            let (dense, missing) = oxy_morph::resolve(&a.mesh, &a.catalog.evaluate(&values));
-            if !missing.is_empty() {
-                eprintln!("warning: {} unknown targets", missing.len());
+        ["export", path, out, rest @ ..] => {
+            let mut a = load(path)?;
+            let mut opts = export::ExportOptions::default();
+            let mut params = Vec::new();
+            let mut it = rest.iter();
+            while let Some(arg) = it.next() {
+                match *arg {
+                    "--tpose" => opts.bind_pose = export::BindPose::TPose,
+                    "--no-skeleton" => opts.skeleton = false,
+                    "--blendshapes" => opts.blendshapes = true,
+                    "--morphs" => {
+                        let dir = it.next().ok_or("--morphs needs a folder")?;
+                        let (morphs, errors) = oxybrush::load_custom_morphs(Path::new(dir), a.mesh.base.vertex_count());
+                        for e in errors {
+                            eprintln!("warning: {e}");
+                        }
+                        for m in &morphs {
+                            let id = a.add_custom_morph(m);
+                            println!("custom morph {id} ({})", m.label);
+                        }
+                    }
+                    kv => params.push(kv),
+                }
             }
-            let positions = a.mesh.evaluate(&dense);
-            let normals = a.mesh.base.compute_normals(&positions);
+            let values = parse_params(&a, &params)?;
             let f = File::create(out).map_err(|e| format!("{out}: {e}"))?;
-            let mesh = gltf::ExportMesh {
-                name: "character",
-                positions: &positions,
-                normals: &normals,
-                indices: &a.mesh.base.indices,
-                base_color: [0.8, 0.62, 0.52, 1.0],
-                colors: None,
-            };
-            gltf::write_glb(&mesh, BufWriter::new(f)).map_err(|e| e.to_string())?;
-            println!("wrote {out}");
+            let st = export::character_glb(&a, &values, &[], &opts, BufWriter::new(f)).map_err(|e| e.to_string())?;
+            println!("wrote {out}: {} mesh(es), {} bones, {} blendshape(s)", st.meshes, st.bones, st.blendshapes);
         }
         _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | export <bundle> <out.glb> [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--morphs DIR] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
         }
     }
     Ok(())

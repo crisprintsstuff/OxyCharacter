@@ -307,33 +307,7 @@ pub fn apply_camera(
 #[derive(Component)]
 pub struct AccessoryMesh;
 
-fn srgb_to_linear(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-/// Linear RGBA vertex colors for an accessory (white when unpainted).
-pub fn accessory_colors(a: &oxy_io::oxybrush::Accessory) -> Option<Vec<[f32; 4]>> {
-    (a.color.len() == a.positions.len() && !a.color.is_empty()).then(|| {
-        a.color
-            .iter()
-            .map(|c| {
-                [
-                    srgb_to_linear(c.x),
-                    srgb_to_linear(c.y),
-                    srgb_to_linear(c.z),
-                    1.0,
-                ]
-            })
-            .collect()
-    })
-}
-
-/// Clay color for unpainted accessories (linear).
-pub const ACCESSORY_CLAY: [f32; 3] = [0.42, 0.44, 0.48];
+pub use oxy_io::export::{accessory_colors, ACCESSORY_CLAY};
 
 /// Re-spawn accessory meshes after an import, delete or visibility change.
 pub fn sync_accessories(

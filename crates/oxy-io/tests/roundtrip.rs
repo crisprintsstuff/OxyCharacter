@@ -16,6 +16,7 @@ fn glb_parses_with_gltf_crate() {
         indices: &indices,
         base_color: [0.8, 0.6, 0.5, 1.0],
         colors: None,
+        ..Default::default()
     };
     write_glb(&mesh, &mut bytes).unwrap();
 
@@ -77,6 +78,7 @@ fn multi_mesh_glb_with_colors_parses() {
         indices: &[0, 1, 2],
         base_color: [1.0; 4],
         colors: None,
+        ..Default::default()
     };
     let hat = ExportMesh {
         name: "hat",
@@ -85,9 +87,10 @@ fn multi_mesh_glb_with_colors_parses() {
         indices: &[0, 2, 1],
         base_color: [1.0; 4],
         colors: Some(&c),
+        ..Default::default()
     };
     let mut bytes = Vec::new();
-    oxy_io::gltf::write_glb_scene(&[body, hat], &mut bytes).unwrap();
+    oxy_io::gltf::write_glb_scene(&[body, hat], None, &mut bytes).unwrap();
     let (doc, buffers, _) = gltf::import_slice(&bytes).expect("valid glb");
     assert_eq!(doc.nodes().count(), 2);
     let hat = doc.meshes().nth(1).unwrap().primitives().next().unwrap();
@@ -153,4 +156,87 @@ fn makehuman_rig_refits_to_morphs_if_available() {
         .map(|(a, b)| a.distance(*b))
         .fold(0.0f32, f32::max);
     assert!(err < 1e-4, "bind-pose skinning error {err}");
+}
+
+/// Rigged export of the real character re-read with the `gltf` crate:
+/// joint hierarchy × inverse bind = identity, weights normalised, T-pose arms
+/// horizontal. Skipped without `OXY_MAKEHUMAN_DATA`.
+#[test]
+fn rigged_export_is_consistent_if_available() {
+    use oxy_io::export::{character_glb, BindPose, ExportOptions};
+    use oxy_io::glam::{Mat4, Quat, Vec3 as V};
+    let Some(dir) = std::env::var_os("OXY_MAKEHUMAN_DATA") else {
+        eprintln!("OXY_MAKEHUMAN_DATA not set; skipping");
+        return;
+    };
+    let asset = oxy_io::makehuman::import(dir.as_ref()).unwrap();
+    for pose in [BindPose::Rest, BindPose::TPose] {
+        let mut bytes = Vec::new();
+        let opts = ExportOptions {
+            bind_pose: pose,
+            ..Default::default()
+        };
+        character_glb(&asset, &asset.catalog.defaults(), &[], &opts, &mut bytes).unwrap();
+        let (doc, buffers, _) = gltf::import_slice(&bytes).expect("valid glb");
+        let skin = doc.skins().next().expect("skin");
+        let joints: Vec<_> = skin.joints().collect();
+        assert_eq!(joints.len(), asset.rig.as_ref().unwrap().bones.len());
+
+        // World transforms from the node hierarchy.
+        let mut world = std::collections::HashMap::new();
+        fn walk(n: gltf::Node, parent: Mat4, world: &mut std::collections::HashMap<usize, Mat4>) {
+            let (t, r, s) = n.transform().decomposed();
+            let m = parent
+                * Mat4::from_scale_rotation_translation(
+                    V::from(s),
+                    Quat::from_array(r),
+                    V::from(t),
+                );
+            world.insert(n.index(), m);
+            for c in n.children() {
+                walk(c, m, world);
+            }
+        }
+        for n in doc.scenes().next().unwrap().nodes() {
+            walk(n, Mat4::IDENTITY, &mut world);
+        }
+        let ibm: Vec<Mat4> = skin
+            .reader(|b| Some(&buffers[b.index()]))
+            .read_inverse_bind_matrices()
+            .unwrap()
+            .map(|m| Mat4::from_cols_array_2d(&m))
+            .collect();
+        for (j, ib) in joints.iter().zip(&ibm) {
+            let err = (world[&j.index()] * *ib - Mat4::IDENTITY)
+                .to_cols_array()
+                .iter()
+                .fold(0.0f32, |a, b| a.max(b.abs()));
+            assert!(
+                err < 1e-4,
+                "{pose:?}: joint {:?} bind × IBM off by {err}",
+                j.name()
+            );
+        }
+
+        let prim = doc.meshes().next().unwrap().primitives().next().unwrap();
+        let r = prim.reader(|b| Some(&buffers[b.index()]));
+        for w in r.read_weights(0).unwrap().into_f32() {
+            assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-4);
+        }
+        if pose == BindPose::TPose {
+            // Left wrist roughly level with the left shoulder.
+            let name = |n: &str| {
+                joints
+                    .iter()
+                    .find(|j| j.name() == Some(n))
+                    .map(|j| world[&j.index()].w_axis.truncate())
+                    .unwrap()
+            };
+            let (sh, wr) = (name("upperarm01.L"), name("wrist.L"));
+            assert!(
+                (wr.y - sh.y).abs() < 0.03 && wr.x > sh.x + 0.4,
+                "T-pose arm: shoulder {sh:?} wrist {wr:?}"
+            );
+        }
+    }
 }
