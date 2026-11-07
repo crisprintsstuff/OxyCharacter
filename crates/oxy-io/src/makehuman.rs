@@ -1,5 +1,6 @@
 //! Builds a [`CharacterAsset`] from the CC0 MakeHuman data set
-//! (`data/3dobjs/base.obj` + `data/targets/**.target`).
+//! (`data/3dobjs/base.obj`, `data/targets/**.target` and, when present,
+//! `data/rigs/default.mhskel` + `default_weights.mhw`).
 //!
 //! Only the *data* is used (released CC0 in 2020); the slider taxonomy, pairing
 //! heuristics and macro model below are OxyCharacter's own.
@@ -11,6 +12,8 @@ use std::path::{Path, PathBuf};
 use glam::Vec3;
 use oxy_mesh::{Mesh, MorphTarget, MorphableMesh};
 use oxy_morph::{Catalog, Gain, MacroAxis, MacroGrid, MacroLayer, ParamDef, Slider};
+use oxy_rig::{Bone, Influence, Joint, Rig};
+use serde_json::Value;
 
 use crate::{obj, target, AssetMeta, CharacterAsset, IoError, Result};
 
@@ -123,6 +126,8 @@ fn mirror_of(id: &str) -> Option<String> {
 struct Loader {
     targets_dir: PathBuf,
     remap: Vec<u32>,
+    /// Original vertex index → aux point index (`u32::MAX` if not an aux point).
+    aux_remap: Vec<u32>,
     targets: Vec<MorphTarget>,
 }
 
@@ -134,24 +139,20 @@ impl Loader {
         let Ok(src) = fs::read_to_string(&path) else {
             return Ok(false);
         };
-        let (mut indices, mut deltas) = (Vec::new(), Vec::new());
+        let mut t = MorphTarget::new(name, Vec::new(), Vec::new());
         for (i, d) in target::parse(&src, &path.to_string_lossy())? {
-            match self.remap.get(i as usize) {
-                Some(&n) if n != u32::MAX => {
-                    indices.push(n);
-                    deltas.push(d * UNIT_SCALE);
-                }
-                _ => {}
+            if let Some(&n) = self.remap.get(i as usize).filter(|&&n| n != u32::MAX) {
+                t.indices.push(n);
+                t.deltas.push(d * UNIT_SCALE);
+            } else if let Some(&a) = self.aux_remap.get(i as usize).filter(|&&a| a != u32::MAX) {
+                t.aux_indices.push(a);
+                t.aux_deltas.push(d * UNIT_SCALE);
             }
         }
-        if indices.is_empty() {
+        if t.indices.is_empty() {
             return Ok(false);
         }
-        self.targets.push(MorphTarget {
-            name: name.into(),
-            indices,
-            deltas,
-        });
+        self.targets.push(t);
         Ok(true)
     }
 }
@@ -194,9 +195,21 @@ pub fn import(root: &Path) -> Result<CharacterAsset> {
     }
     let base = Mesh::new(positions, indices).map_err(|e| IoError::Invalid(e.to_string()))?;
 
+    let mut aux_remap = vec![u32::MAX; obj.positions.len()];
+    let mut aux = Vec::new();
+    let rig = read_rig(
+        root,
+        &obj.positions,
+        &remap,
+        &base.positions,
+        &mut aux_remap,
+        &mut aux,
+    )?;
+
     let mut loader = Loader {
         targets_dir: root.join("targets"),
         remap,
+        aux_remap,
         targets: Vec::new(),
     };
     let mut catalog = Catalog::default();
@@ -206,16 +219,182 @@ pub fn import(root: &Path) -> Result<CharacterAsset> {
     Ok(CharacterAsset {
         meta: AssetMeta {
             name: "MakeHuman hm08 base (body)".into(),
-            source: "https://github.com/makehumancommunity/makehuman (data/3dobjs, data/targets)"
+            source: "https://github.com/makehumancommunity/makehuman (data/3dobjs, data/targets, data/rigs)"
                 .into(),
             license: "CC0-1.0".into(),
         },
         mesh: MorphableMesh {
             base,
             targets: loader.targets,
+            aux,
         },
         catalog,
+        rig,
     })
+}
+
+fn json_err(file: &Path, msg: &str) -> IoError {
+    IoError::Invalid(format!("{}: {msg}", file.display()))
+}
+
+/// Read the MakeHuman default skeleton and weights, if present.
+///
+/// Joints are averages of listed vertices. Vertices that are not part of the
+/// body (helper geometry inside it) become aux points, which morph targets
+/// move too, so the skeleton refits exactly to every macro/region morph.
+fn read_rig(
+    root: &Path,
+    obj_positions: &[Vec3],
+    remap: &[u32],
+    body: &[Vec3],
+    aux_remap: &mut [u32],
+    aux: &mut Vec<Vec3>,
+) -> Result<Option<Rig>> {
+    let skel_path = root.join("rigs/default.mhskel");
+    let Ok(src) = fs::read_to_string(&skel_path) else {
+        return Ok(None);
+    };
+    let skel: Value = serde_json::from_str(&src)?;
+    let bad = |m: &str| json_err(&skel_path, m);
+
+    // Joints (name → point list), in a stable order.
+    let joints_v = skel["joints"].as_object().ok_or_else(|| bad("no joints"))?;
+    let mut joint_names: Vec<&String> = joints_v.keys().collect();
+    joint_names.sort();
+    let mut joints = Vec::with_capacity(joint_names.len());
+    for name in &joint_names {
+        let mut anchor = Vec::new();
+        for v in joints_v[*name]
+            .as_array()
+            .ok_or_else(|| bad("joint is not a list"))?
+        {
+            let i = v
+                .as_u64()
+                .ok_or_else(|| bad("joint vertex is not an index"))? as usize;
+            if i >= obj_positions.len() {
+                return Err(bad("joint vertex out of range"));
+            }
+            let point = if remap[i] != u32::MAX {
+                remap[i]
+            } else {
+                if aux_remap[i] == u32::MAX {
+                    aux_remap[i] = aux.len() as u32;
+                    aux.push(obj_positions[i] * UNIT_SCALE);
+                }
+                body.len() as u32 + aux_remap[i]
+            };
+            anchor.push((point, 1.0));
+        }
+        joints.push(Joint {
+            name: (*name).clone(),
+            anchor,
+        });
+    }
+    let joint_index = |n: &str| joint_names.iter().position(|j| *j == n);
+
+    // Bones, ordered parents-first.
+    let bones_v = skel["bones"].as_object().ok_or_else(|| bad("no bones"))?;
+    let mut order: Vec<&String> = Vec::new();
+    let mut remaining: Vec<&String> = bones_v.keys().collect();
+    remaining.sort();
+    while !remaining.is_empty() {
+        let before = remaining.len();
+        remaining.retain(|name| {
+            let parent = bones_v[*name]["parent"].as_str();
+            if parent.is_none_or(|p| order.iter().any(|o| *o == p)) {
+                order.push(name);
+                false
+            } else {
+                true
+            }
+        });
+        if remaining.len() == before {
+            return Err(bad("bone hierarchy has a cycle or a missing parent"));
+        }
+    }
+    let mut bones = Vec::with_capacity(order.len());
+    for name in &order {
+        let b = &bones_v[*name];
+        let joint = |key: &str| {
+            b[key]
+                .as_str()
+                .and_then(joint_index)
+                .ok_or_else(|| bad(&format!("bone {name}: bad {key}")))
+        };
+        let roll_plane = b["rotation_plane"]
+            .as_str()
+            .and_then(|p| skel["planes"][p].as_array())
+            .and_then(|list| {
+                let idx: Vec<usize> = list
+                    .iter()
+                    .filter_map(|j| j.as_str().and_then(joint_index))
+                    .collect();
+                <[usize; 3]>::try_from(idx).ok()
+            });
+        bones.push(Bone {
+            name: (*name).clone(),
+            parent: b["parent"]
+                .as_str()
+                .and_then(|p| order.iter().position(|o| *o == p)),
+            head: joint("head")?,
+            tail: joint("tail")?,
+            roll_plane,
+        });
+    }
+
+    // Skin weights (by original vertex index), top four per body vertex.
+    let weights_file = skel["weights_file"]
+        .as_str()
+        .unwrap_or("default_weights.mhw");
+    let wpath = root.join("rigs").join(weights_file);
+    let wsrc = fs::read_to_string(&wpath).map_err(|e| json_err(&wpath, &e.to_string()))?;
+    let wjson: Value = serde_json::from_str(&wsrc)?;
+    let mut pairs: Vec<Vec<(u16, f32)>> = vec![Vec::new(); body.len()];
+    for (bone, list) in wjson["weights"]
+        .as_object()
+        .ok_or_else(|| json_err(&wpath, "no weights"))?
+    {
+        let Some(bi) = bones.iter().position(|b| &b.name == bone) else {
+            continue;
+        };
+        for e in list.as_array().into_iter().flatten() {
+            let (Some(v), Some(w)) = (e[0].as_u64(), e[1].as_f64()) else {
+                continue;
+            };
+            if let Some(&n) = remap.get(v as usize).filter(|&&n| n != u32::MAX) {
+                pairs[n as usize].push((bi as u16, w as f32));
+            }
+        }
+    }
+    let skin = pairs.into_iter().map(Influence::from_pairs).collect();
+
+    // Aux points follow their nearest body vertices for morphs that don't move them.
+    let aux_from_body = aux
+        .iter()
+        .map(|&p| {
+            let mut near: Vec<(f32, u32)> = body
+                .iter()
+                .enumerate()
+                .map(|(i, b)| (b.distance(p), i as u32))
+                .collect();
+            near.select_nth_unstable_by(7, |a, b| a.0.total_cmp(&b.0));
+            near[..8]
+                .iter()
+                .map(|&(d, i)| (i, 1.0 / d.max(1e-4)))
+                .collect()
+        })
+        .collect();
+
+    let rig = Rig {
+        name: skel["name"].as_str().unwrap_or("skeleton").to_owned(),
+        joints,
+        bones,
+        skin,
+        aux_from_body,
+    };
+    rig.validate(body.len(), aux.len())
+        .map_err(|e| bad(&e.to_string()))?;
+    Ok(Some(rig))
 }
 
 fn macro_param(id: &str, label: &str, min: f32, default: f32, ends: [&str; 2]) -> ParamDef {

@@ -120,7 +120,9 @@ pub fn classify(scene: &Scene, base_triangles: &[[u32; 3]], reference: &[Vec3]) 
         .iter()
         .map(|p| {
             let (pos, tris) = p.base_mesh();
-            match match_topology(reference, base_triangles, pos, tris) {
+            let mapping = vmap_correspondence(p, base_triangles, reference.len())
+                .or_else(|| match_topology(reference, base_triangles, pos, tris));
+            match mapping {
                 Some(map) => {
                     let (mut indices, mut deltas) = (Vec::new(), Vec::new());
                     let mut max_displacement = 0.0f32;
@@ -155,6 +157,42 @@ pub fn classify(scene: &Scene, base_triangles: &[[u32; 3]], reference: &[Vec3]) 
             }
         })
         .collect()
+}
+
+/// Exact correspondence from an OxyBrush `VMAP` section (`source[b] = a`),
+/// accepted only if it is a bijection that maps the piece's triangles onto
+/// the base topology. Returns `result[a] = b` like [`match_topology`].
+pub fn vmap_correspondence(
+    p: &Piece,
+    base_triangles: &[[u32; 3]],
+    vertex_count: usize,
+) -> Option<Vec<u32>> {
+    if p.levels.is_some()
+        || p.source.len() != vertex_count
+        || p.positions.len() != vertex_count
+        || p.triangles.len() != base_triangles.len()
+    {
+        return None;
+    }
+    let mut map = vec![u32::MAX; vertex_count];
+    for (b, &a) in p.source.iter().enumerate() {
+        let slot = map.get_mut(a as usize)?;
+        if *slot != u32::MAX {
+            return None; // not a bijection
+        }
+        *slot = b as u32;
+    }
+    // Every piece triangle, mapped back, must be a base triangle with the same winding.
+    let canon = |t: [u32; 3]| {
+        let k = (0..3).min_by_key(|&i| t[i]).unwrap();
+        [t[k], t[(k + 1) % 3], t[(k + 2) % 3]]
+    };
+    let base: std::collections::HashSet<[u32; 3]> =
+        base_triangles.iter().map(|&t| canon(t)).collect();
+    p.triangles
+        .iter()
+        .all(|t| base.contains(&canon(t.map(|i| p.source[i as usize]))))
+        .then_some(map)
 }
 
 // ------------------------------------------------------- custom morph files
@@ -302,6 +340,39 @@ mod tests {
         }
         assert!(matches!(&out[1], Imported::Accessory(a) if a.name == "Hat"));
         assert!(matches!(&out[2], Imported::Unchanged { .. }));
+    }
+
+    #[test]
+    fn uses_vmap_when_valid_and_rejects_bad_ones() {
+        let (p, t) = tetra();
+        // Reverse the vertex order, as OxyBrush might, and record it in VMAP.
+        let perm = [3u32, 2, 1, 0]; // new index of old vertex
+        let mut piece = Piece::new(
+            BODY_PIECE,
+            vec![Vec3::ZERO; 4],
+            t.iter().map(|tri| tri.map(|i| perm[i as usize])).collect(),
+        );
+        for (a, &b) in perm.iter().enumerate() {
+            piece.positions[b as usize] = p[a] + Vec3::Y * (a as f32);
+        }
+        piece.source = vec![3, 2, 1, 0];
+        let map = vmap_correspondence(&piece, &t, 4).expect("valid vmap");
+        assert_eq!(map, perm.to_vec());
+        // A VMAP that doesn't fit the triangles (here: flips winding) is
+        // ignored, and the matcher is used instead.
+        piece.source = vec![2, 3, 1, 0];
+        assert!(vmap_correspondence(&piece, &t, 4).is_none());
+        piece.source = vec![0, 0, 1, 2];
+        assert!(vmap_correspondence(&piece, &t, 4).is_none());
+        // classify still produces the right morph either way.
+        let scene = Scene {
+            pieces: vec![piece],
+            ..Default::default()
+        };
+        match &classify(&scene, &t, &p)[0] {
+            Imported::Morph { indices, .. } => assert_eq!(indices, &[1, 2, 3]),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

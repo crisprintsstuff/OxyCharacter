@@ -1,12 +1,15 @@
 //! `.oxyb` — OxyCharacter's compact binary container for a [`CharacterAsset`].
 //!
-//! Layout (all little-endian):
+//! Layout (all little-endian), version 2:
 //! ```text
-//! b"OXYB"  u32 version  u32 header_len  header (JSON)
+//! b"OXYB"  u32 version  u32 header_len  header (JSON: meta, catalog, rig, counts)
 //! base positions  [f32; 3] × vertex_count
 //! base indices    u32 × index_count
-//! per target:     u32 × len (vertex indices), then [f32; 3] × len (deltas)
+//! aux points      [f32; 3] × aux_count
+//! per target:     u32 × len, [f32; 3] × len        (body deltas)
+//!                 u32 × aux_len, [f32; 3] × aux_len (aux deltas)
 //! ```
+//! Version 1 (no aux points, no rig) is still read.
 //! Parsing hundreds of text targets takes seconds; this loads in milliseconds.
 
 use std::io::{Read, Write};
@@ -14,12 +17,13 @@ use std::io::{Read, Write};
 use glam::Vec3;
 use oxy_mesh::{Mesh, MorphTarget, MorphableMesh};
 use oxy_morph::Catalog;
+use oxy_rig::Rig;
 use serde::{Deserialize, Serialize};
 
 use crate::{AssetMeta, CharacterAsset, IoError, Result};
 
 const MAGIC: &[u8; 4] = b"OXYB";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Header {
@@ -27,7 +31,19 @@ struct Header {
     catalog: Catalog,
     vertex_count: usize,
     index_count: usize,
-    targets: Vec<(String, usize)>,
+    /// (name, body delta count, aux delta count); v1 has no third field.
+    targets: Vec<TargetHeader>,
+    #[serde(default)]
+    aux_count: usize,
+    #[serde(default)]
+    rig: Option<Rig>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum TargetHeader {
+    V2(String, usize, usize),
+    V1(String, usize),
 }
 
 fn put_u32s(w: &mut impl Write, v: &[u32]) -> Result<()> {
@@ -54,8 +70,10 @@ pub fn write(asset: &CharacterAsset, mut w: impl Write) -> Result<()> {
         targets: m
             .targets
             .iter()
-            .map(|t| (t.name.clone(), t.indices.len()))
+            .map(|t| TargetHeader::V2(t.name.clone(), t.indices.len(), t.aux_indices.len()))
             .collect(),
+        aux_count: m.aux.len(),
+        rig: asset.rig.clone(),
     };
     let json = serde_json::to_vec(&header)?;
     w.write_all(MAGIC)?;
@@ -64,9 +82,12 @@ pub fn write(asset: &CharacterAsset, mut w: impl Write) -> Result<()> {
     w.write_all(&json)?;
     put_vec3s(&mut w, &m.base.positions)?;
     put_u32s(&mut w, &m.base.indices)?;
+    put_vec3s(&mut w, &m.aux)?;
     for t in &m.targets {
         put_u32s(&mut w, &t.indices)?;
         put_vec3s(&mut w, &t.deltas)?;
+        put_u32s(&mut w, &t.aux_indices)?;
+        put_vec3s(&mut w, &t.aux_deltas)?;
     }
     Ok(())
 }
@@ -85,14 +106,18 @@ impl Cursor<'_> {
     fn u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
-    fn u32s(&mut self, n: usize) -> Result<Vec<u32>> {
-        Ok(self
+    fn u32s(&mut self, n: usize, bound: usize, what: &str) -> Result<Vec<u32>> {
+        let v: Vec<u32> = self
             .take(n * 4)?
             .as_chunks::<4>()
             .0
             .iter()
             .map(|c| u32::from_le_bytes(*c))
-            .collect())
+            .collect();
+        if v.iter().any(|&i| i as usize >= bound) {
+            return Err(IoError::Invalid(format!("{what} index out of range")));
+        }
+        Ok(v)
     }
     fn vec3s(&mut self, n: usize) -> Result<Vec<Vec3>> {
         Ok(self
@@ -116,48 +141,79 @@ pub fn read(mut r: impl Read) -> Result<CharacterAsset> {
         return Err(IoError::Invalid("not an .oxyb bundle".into()));
     }
     let version = c.u32()?;
-    if version != VERSION {
+    if version == 0 || version > VERSION {
         return Err(IoError::Invalid(format!(
-            "unsupported bundle version {version}"
+            "unsupported bundle version {version} (rebuild it with tools/fetch-assets.sh)"
         )));
     }
     let len = c.u32()? as usize;
     let header: Header = serde_json::from_slice(c.take(len)?)?;
     let positions = c.vec3s(header.vertex_count)?;
-    let indices = c.u32s(header.index_count)?;
+    let indices = c.u32s(header.index_count, header.vertex_count, "triangle")?;
     let base = Mesh::new(positions, indices).map_err(|e| IoError::Invalid(e.to_string()))?;
+    let n = base.positions.len();
+    let aux = if version >= 2 {
+        c.vec3s(header.aux_count)?
+    } else {
+        Vec::new()
+    };
     let mut targets = Vec::with_capacity(header.targets.len());
-    for (name, n) in header.targets {
-        let indices = c.u32s(n)?;
-        if indices.iter().any(|&i| i as usize >= base.positions.len()) {
-            return Err(IoError::Invalid(format!(
-                "target {name} indexes past the mesh"
-            )));
+    for th in header.targets {
+        let (name, len, aux_len) = match th {
+            TargetHeader::V2(n, l, a) => (n, l, a),
+            TargetHeader::V1(n, l) => (n, l, 0),
+        };
+        let mut t = MorphTarget::new(name, c.u32s(len, n, "target vertex")?, c.vec3s(len)?);
+        if version >= 2 {
+            t.aux_indices = c.u32s(aux_len, aux.len(), "target aux")?;
+            t.aux_deltas = c.vec3s(aux_len)?;
         }
-        targets.push(MorphTarget {
-            name,
-            indices,
-            deltas: c.vec3s(n)?,
-        });
+        targets.push(t);
+    }
+    if let Some(rig) = &header.rig {
+        rig.validate(n, aux.len())
+            .map_err(|e| IoError::Invalid(format!("bundle rig: {e}")))?;
     }
     Ok(CharacterAsset {
         meta: header.meta,
-        mesh: MorphableMesh { base, targets },
+        mesh: MorphableMesh { base, targets, aux },
         catalog: header.catalog,
+        rig: header.rig,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxy_rig::{Bone, Influence, Joint};
 
     #[test]
-    fn round_trip() {
+    fn round_trip_with_aux_and_rig() {
         let base = Mesh::new(vec![Vec3::ZERO, Vec3::X, Vec3::Y], vec![0, 1, 2]).unwrap();
-        let t = MorphTarget {
-            name: "t".into(),
-            indices: vec![2],
-            deltas: vec![Vec3::Z],
+        let mut t = MorphTarget::new("t", vec![2], vec![Vec3::Z]);
+        t.aux_indices = vec![0];
+        t.aux_deltas = vec![Vec3::X];
+        let rig = Rig {
+            name: "r".into(),
+            joints: vec![
+                Joint {
+                    name: "a".into(),
+                    anchor: vec![(0, 1.0)],
+                },
+                Joint {
+                    name: "b".into(),
+                    anchor: vec![(3, 1.0)],
+                },
+            ],
+            bones: vec![Bone {
+                name: "bone".into(),
+                parent: None,
+                head: 0,
+                tail: 1,
+                roll_plane: None,
+            }],
+            skin: vec![Influence::from_pairs(vec![(0, 1.0)]); 3],
+            aux_from_body: vec![vec![(0, 1.0)]],
         };
         let asset = CharacterAsset {
             meta: AssetMeta {
@@ -166,16 +222,41 @@ mod tests {
             },
             mesh: MorphableMesh {
                 base,
-                targets: vec![t],
+                targets: vec![t.clone()],
+                aux: vec![Vec3::Y * 2.0],
             },
             catalog: Catalog::default(),
+            rig: Some(rig.clone()),
         };
         let mut bytes = Vec::new();
         write(&asset, &mut bytes).unwrap();
         let back = read(bytes.as_slice()).unwrap();
         assert_eq!(back.meta.name, "tri");
         assert_eq!(back.mesh.base.indices, vec![0, 1, 2]);
-        assert_eq!(back.mesh.targets[0].deltas, vec![Vec3::Z]);
+        assert_eq!(back.mesh.targets[0], t);
+        assert_eq!(back.mesh.aux, vec![Vec3::Y * 2.0]);
+        assert_eq!(back.rig, Some(rig));
         assert!(read(&bytes[..bytes.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn reads_version_one() {
+        let header = serde_json::json!({
+            "meta": AssetMeta::default(), "catalog": Catalog::default(),
+            "vertex_count": 3, "index_count": 3, "targets": [["t", 1]]
+        });
+        let json = serde_json::to_vec(&header).unwrap();
+        let mut b = Vec::new();
+        b.extend_from_slice(MAGIC);
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        b.extend_from_slice(&json);
+        put_vec3s(&mut b, &[Vec3::ZERO, Vec3::X, Vec3::Y]).unwrap();
+        put_u32s(&mut b, &[0, 1, 2]).unwrap();
+        put_u32s(&mut b, &[1]).unwrap();
+        put_vec3s(&mut b, &[Vec3::Z]).unwrap();
+        let a = read(b.as_slice()).unwrap();
+        assert_eq!(a.mesh.targets[0].deltas, vec![Vec3::Z]);
+        assert!(a.rig.is_none());
     }
 }

@@ -18,7 +18,7 @@ if [ ! -d "$CACHE/.git" ]; then
   GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --filter=blob:none --sparse --branch "$REV" "$REPO" "$CACHE"
 fi
 git -C "$CACHE" sparse-checkout set --no-cone \
-  '/LICENSE.md' '/LICENSE.ASSETS.md' '/makehuman/data/3dobjs/' '/makehuman/data/targets/'
+  '/LICENSE.md' '/LICENSE.ASSETS.md' '/makehuman/data/3dobjs/' '/makehuman/data/targets/' '/makehuman/data/rigs/'
 echo "MakeHuman data revision: $(git -C "$CACHE" rev-parse HEAD)"
 
 mkdir -p "$(dirname "$OUT")"

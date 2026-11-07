@@ -12,6 +12,10 @@
 //! MRES    := (levels of the preceding PIEC) levels:u32 active:u32 t0:u32
 //!            base_triangles:u32*3t0, then per level v:u32 positions:f32*3v
 //! VCOL    := (vertex color of the preceding PIEC) v:u32 rgb:f32*3v (sRGB)
+//! VMAP    := (vertex origin of the preceding PIEC, OxyBrush ≥ 2.5.8) v:u32
+//!            source:u32*v — vertex i came from vertex source[i] of the file
+//!            the piece was first loaded from. Only written while topology is
+//!            unchanged since load and the piece has no MRES.
 //! ```
 //!
 //! All integers little-endian. Unknown sections are skipped.
@@ -51,6 +55,8 @@ pub struct Piece {
     /// sRGB vertex color, empty when unpainted.
     pub color: Vec<Vec3>,
     pub levels: Option<Levels>,
+    /// VMAP: original index of each vertex in the file first loaded, or empty.
+    pub source: Vec<u32>,
 }
 
 impl Piece {
@@ -143,6 +149,14 @@ pub fn encode(scene: &Scene) -> Vec<u8> {
                 put_vec3s(&mut b, pos);
             }
             sections.push((*b"MRES", b));
+        }
+        if p.source.len() == v && v > 0 && p.levels.is_none() {
+            let mut b = Vec::with_capacity(4 + v * 4);
+            put_u32(&mut b, v as u32);
+            for &i in &p.source {
+                put_u32(&mut b, i);
+            }
+            sections.push((*b"VMAP", b));
         }
         if p.color.len() == v && v > 0 {
             let mut b = Vec::with_capacity(4 + v * 12);
@@ -332,6 +346,7 @@ pub fn decode(data: &[u8]) -> Result<Scene> {
                     hidden,
                     color: Vec::new(),
                     levels: None,
+                    source: Vec::new(),
                 });
             }
             b"MRES" => {
@@ -378,6 +393,19 @@ pub fn decode(data: &[u8]) -> Result<Scene> {
                     piece.color = s.vec3s(n)?;
                 }
             }
+            b"VMAP" => {
+                let piece = scene
+                    .pieces
+                    .last_mut()
+                    .ok_or_else(|| corrupt("VMAP before any piece"))?;
+                let n = s.u32()? as usize;
+                s.check(n, 4)?;
+                let source: Vec<u32> = (0..n).map(|_| s.u32()).collect::<Result<_>>()?;
+                // Ignored (not fatal) when it doesn't describe the piece.
+                if n == piece.positions.len() {
+                    piece.source = source;
+                }
+            }
             _ => {} // Unknown sections are skipped by design.
         }
     }
@@ -407,6 +435,7 @@ mod tests {
         a.color = vec![Vec3::ONE, Vec3::X, Vec3::Y, Vec3::Z];
         let mut b = Piece::new("Hat ✓", vec![Vec3::ZERO, Vec3::X, Vec3::Y], vec![[0, 1, 2]]);
         b.visible = false;
+        a.source = vec![3, 2, 1, 0];
         (b.mask, b.groups, b.hidden) = (vec![0.0; 3], vec![0], vec![false]);
         b.levels = Some(Levels {
             base_triangles: vec![[0, 1, 2]],

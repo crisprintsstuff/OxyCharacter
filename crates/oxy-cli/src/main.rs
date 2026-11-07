@@ -44,6 +44,10 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{} — {} ({})", a.meta.name, a.meta.license, a.meta.source);
             println!("vertices {}, triangles {}", a.mesh.base.vertex_count(), a.mesh.base.indices.len() / 3);
             println!("targets {}, params {}, macro layers {}", a.mesh.targets.len(), a.catalog.params.len(), a.catalog.layers.len());
+            match &a.rig {
+                Some(r) => println!("rig {:?}: {} bones, {} joints, {} aux points", r.name, r.bones.len(), r.joints.len(), a.mesh.aux.len()),
+                None => println!("no rig"),
+            }
             let mut groups: Vec<String> = a.catalog.params.iter().map(|p| p.group.join(" / ")).collect();
             groups.sort();
             groups.dedup();

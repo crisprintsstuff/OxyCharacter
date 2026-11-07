@@ -54,6 +54,17 @@ pub struct CharacterAsset {
     pub meta: AssetMeta,
     pub mesh: MorphableMesh,
     pub catalog: Catalog,
+    pub rig: Option<oxy_rig::Rig>,
+}
+
+/// A fully evaluated, floor-standing character.
+#[derive(Debug, Clone)]
+pub struct Evaluated {
+    pub body: Vec<glam::Vec3>,
+    pub aux: Vec<glam::Vec3>,
+    /// Joint positions (empty without a rig).
+    pub joints: Vec<glam::Vec3>,
+    pub ground_offset: f32,
 }
 
 impl CharacterAsset {
@@ -65,6 +76,27 @@ impl CharacterAsset {
         let offset = -pos.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
         pos.iter_mut().for_each(|p| p.y += offset);
         (pos, offset)
+    }
+
+    /// Body, aux points and joints for `params`, standing on the floor.
+    pub fn evaluate_full(&self, params: &oxy_morph::Params) -> Evaluated {
+        let (dense, _) = oxy_morph::resolve(&self.mesh, &self.catalog.evaluate(params));
+        let mut body = self.mesh.evaluate(&dense);
+        let mut aux = self.mesh.evaluate_aux(&dense);
+        let ground_offset = -body.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        body.iter_mut()
+            .chain(aux.iter_mut())
+            .for_each(|p| p.y += ground_offset);
+        let joints = self
+            .rig
+            .as_ref()
+            .map_or_else(Vec::new, |r| r.joint_positions(&body, &aux));
+        Evaluated {
+            body,
+            aux,
+            joints,
+            ground_offset,
+        }
     }
 
     pub fn triangles(&self) -> Vec<[u32; 3]> {

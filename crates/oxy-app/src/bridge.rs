@@ -82,11 +82,14 @@ impl Editor {
     pub fn register_custom_morph(&mut self, m: &CustomMorph) {
         let id = format!("{CUSTOM_PREFIX}{}", m.id);
         self.remove_custom_param(&id);
-        self.asset.mesh.targets.push(MorphTarget {
-            name: id.clone(),
-            indices: m.indices.clone(),
-            deltas: m.deltas.clone(),
-        });
+        let mut target = MorphTarget::new(id.clone(), m.indices.clone(), m.deltas.clone());
+        // Sculpts carry no joint-locator motion; derive it so the skeleton follows.
+        if let Some(rig) = &self.asset.rig {
+            let n = self.asset.mesh.base.vertex_count();
+            (target.aux_indices, target.aux_deltas) =
+                rig.derive_aux_deltas(n, &m.indices, &m.deltas);
+        }
+        self.asset.mesh.targets.push(target);
         self.asset.catalog.sliders.push(Slider::Unipolar {
             id: id.clone(),
             target: id.clone(),
@@ -371,8 +374,10 @@ mod tests {
             mesh: MorphableMesh {
                 base,
                 targets: vec![],
+                aux: vec![],
             },
             catalog: oxy_morph::Catalog::default(),
+            rig: None,
         };
         let mut ed = Editor::new(asset, dir);
         ed.bridge.launch = false;

@@ -65,14 +65,29 @@ impl Mesh {
 }
 
 /// A sparse morph target: only the moved vertices are stored.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `aux_*` move the mesh's auxiliary points (see [`MorphableMesh::aux`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MorphTarget {
     pub name: String,
     pub indices: Vec<u32>,
     pub deltas: Vec<Vec3>,
+    #[serde(default)]
+    pub aux_indices: Vec<u32>,
+    #[serde(default)]
+    pub aux_deltas: Vec<Vec3>,
 }
 
 impl MorphTarget {
+    pub fn new(name: impl Into<String>, indices: Vec<u32>, deltas: Vec<Vec3>) -> Self {
+        Self {
+            name: name.into(),
+            indices,
+            deltas,
+            ..Default::default()
+        }
+    }
+
     /// Build a sparse target by diffing a sculpted mesh against the base.
     /// Deltas with length below `epsilon` are dropped.
     pub fn from_diff(
@@ -90,11 +105,7 @@ impl MorphTarget {
                 deltas.push(d);
             }
         }
-        Self {
-            name: name.into(),
-            indices,
-            deltas,
-        }
+        Self::new(name, indices, deltas)
     }
 }
 
@@ -103,6 +114,10 @@ impl MorphTarget {
 pub struct MorphableMesh {
     pub base: Mesh,
     pub targets: Vec<MorphTarget>,
+    /// Auxiliary points that morph with the mesh but are not part of it,
+    /// e.g. joint locator points inside the body.
+    #[serde(default)]
+    pub aux: Vec<Vec3>,
 }
 
 /// Weights below this magnitude are skipped during evaluation.
@@ -131,6 +146,20 @@ impl MorphableMesh {
     pub fn evaluate(&self, weights: &[f32]) -> Vec<Vec3> {
         let mut out = Vec::with_capacity(self.base.vertex_count());
         self.evaluate_into(weights, &mut out);
+        out
+    }
+
+    /// Evaluate the auxiliary points for the same weights.
+    pub fn evaluate_aux(&self, weights: &[f32]) -> Vec<Vec3> {
+        let mut out = self.aux.clone();
+        for (target, &w) in self.targets.iter().zip(weights) {
+            if w.abs() < WEIGHT_EPSILON {
+                continue;
+            }
+            for (&i, &d) in target.aux_indices.iter().zip(&target.aux_deltas) {
+                out[i as usize] += d * w;
+            }
+        }
         out
     }
 }
@@ -176,6 +205,7 @@ mod tests {
         assert_eq!(t.indices, vec![2]);
 
         let mm = MorphableMesh {
+            aux: vec![],
             base,
             targets: vec![t],
         };

@@ -3766,6 +3766,7 @@ dependencies = [
  "lz4_flex",
  "oxy-mesh",
  "oxy-morph",
+ "oxy-rig",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

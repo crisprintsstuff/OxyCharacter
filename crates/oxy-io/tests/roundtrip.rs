@@ -99,3 +99,58 @@ fn multi_mesh_glb_with_colors_parses() {
         .collect();
     assert_eq!(colors, c);
 }
+
+/// Skeleton checks on the real CC0 data (skipped without `OXY_MAKEHUMAN_DATA`).
+#[test]
+fn makehuman_rig_refits_to_morphs_if_available() {
+    let Some(dir) = std::env::var_os("OXY_MAKEHUMAN_DATA") else {
+        eprintln!("OXY_MAKEHUMAN_DATA not set; skipping");
+        return;
+    };
+    let asset = oxy_io::makehuman::import(dir.as_ref()).unwrap();
+    let rig = asset.rig.as_ref().expect("default skeleton imported");
+    rig.validate(asset.mesh.base.vertex_count(), asset.mesh.aux.len())
+        .unwrap();
+    assert!(rig.bones.len() > 100, "{} bones", rig.bones.len());
+    for inf in &rig.skin {
+        let s: f32 = inf.weights.iter().sum();
+        assert!((s - 1.0).abs() < 1e-4, "every body vertex is weighted");
+    }
+
+    let head = rig.bone_index("head").unwrap();
+    let knee = rig.bone_index("lowerleg01.L").unwrap();
+    let eval = |h: f32| {
+        let mut p = asset.catalog.defaults();
+        p.insert("height".into(), h);
+        asset.evaluate_full(&p)
+    };
+    let (short, tall) = (eval(-1.0), eval(1.0));
+    let head_y = |e: &oxy_io::Evaluated| e.joints[rig.bones[head].head].y;
+    assert!(
+        head_y(&tall) > head_y(&short) + 0.1,
+        "head joint rises with height"
+    );
+
+    // Joints stay inside the body's bounding box, and the knee is at roughly knee height.
+    let (lo, hi) = oxy_io::makehuman::bounds(&tall.body);
+    for j in &tall.joints {
+        assert!(
+            j.cmpge(lo - 0.02).all() && j.cmple(hi + 0.02).all(),
+            "joint {j:?} outside body"
+        );
+    }
+    let knee_h = tall.joints[rig.bones[knee].head].y / (hi.y - lo.y);
+    assert!((0.2..0.35).contains(&knee_h), "knee at {knee_h} of height");
+
+    // Bind pose with identity local rotations reproduces the mesh exactly.
+    let bind = rig.bind_matrices(&tall.joints);
+    let posed = rig.pose_matrices(&bind, &vec![oxy_io::glam::Quat::IDENTITY; rig.bones.len()]);
+    let normals = asset.mesh.base.compute_normals(&tall.body);
+    let (skinned, _) = rig.skin_points(&tall.body, &normals, &bind, &posed);
+    let err = skinned
+        .iter()
+        .zip(&tall.body)
+        .map(|(a, b)| a.distance(*b))
+        .fold(0.0f32, f32::max);
+    assert!(err < 1e-4, "bind-pose skinning error {err}");
+}
