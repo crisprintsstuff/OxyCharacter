@@ -220,14 +220,14 @@ pub fn write_glb_scene(
                 None => scene_nodes.push(joint_base + j),
             }
         }
-        for j in 0..count {
+        for (j, kids) in children.iter().enumerate() {
             let (scale, rot, trans) = s.local[j].to_scale_rotation_translation();
             let mut node = json!({ "name": s.joint_names[j], "translation": trans.to_array(), "rotation": rot.normalize().to_array() });
             if (scale - Vec3::ONE).abs().max_element() > 1e-5 {
                 node["scale"] = json!(scale.to_array());
             }
-            if !children[j].is_empty() {
-                node["children"] = json!(children[j]);
+            if !kids.is_empty() {
+                node["children"] = json!(kids);
             }
             nodes.push(node);
         }
