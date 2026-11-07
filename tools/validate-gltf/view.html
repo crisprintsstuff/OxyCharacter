@@ -1,0 +1,38 @@
+<!doctype html><html><body style="margin:0;background:#202226">
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const params = new URLSearchParams(location.search);
+const files = params.get('files').split(',');
+const W = 400 * files.length, H = 560;
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); document.body.appendChild(renderer.domElement);
+renderer.setScissorTest(true);
+const loader = new GLTFLoader();
+const scenes = await Promise.all(files.map(async (f, i) => {
+  const [name, op] = f.split(':');
+  const g = await loader.loadAsync(name);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x202226);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 2.2));
+  const d = new THREE.DirectionalLight(0xffffff, 2.0); d.position.set(1, 2, 3); scene.add(d);
+  scene.add(g.scene);
+  const bone = n => g.scene.getObjectByName(n.replace(/[\[\]\.:\/]/g, ''));
+  const report = {};
+  g.scene.traverse(o => { if (o.isSkinnedMesh) { report.bones = o.skeleton.bones.length; report.morphs = o.morphTargetInfluences?.length ?? 0; } });
+  if (op === 'bend') {   // raise the left upper arm, bend the right elbow, kick the left leg
+    bone('upperarm01.L').rotateZ(-1.0);
+    bone('lowerarm01.R').rotateX(-1.2);
+    bone('upperleg01.L').rotateX(0.6);
+  }
+  if (op === 'morph0') g.scene.traverse(o => { if (o.morphTargetInfluences) o.morphTargetInfluences[0] = 0; });
+  g.scene.updateMatrixWorld(true);
+  const cam = new THREE.PerspectiveCamera(30, 400 / H, 0.1, 50);
+  cam.position.set(0.9, 1.1, 3.6); cam.lookAt(0, 0.9, 0);
+  return { scene, cam, report: { file: name, op: op ?? 'none', ...report } };
+}));
+scenes.forEach((s, i) => { renderer.setViewport(i * 400, 0, 400, H); renderer.setScissor(i * 400, 0, 400, H); renderer.render(s.scene, s.cam); });
+window.REPORT = scenes.map(s => s.report);
+window.DONE = true;
+</script></body></html>

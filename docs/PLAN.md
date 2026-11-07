@@ -9,6 +9,8 @@ clothing and hair, and export a rigged, game-ready character.
 
 ## 0. Clean-room ground rules (read first)
 
+> Current rules and the source log live in [CLEAN_ROOM.md](CLEAN_ROOM.md); live status is in [ROADMAP.md](ROADMAP.md).
+
 "Clean-room" means we reproduce the *category of functionality*, not anyone's
 implementation, assets, or trade dress.
 

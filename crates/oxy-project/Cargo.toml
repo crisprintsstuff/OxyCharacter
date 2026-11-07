@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 glam.workspace = true
@@ -13,3 +14,6 @@ thiserror.workspace = true
 oxy-io.workspace = true
 oxy-mesh.workspace = true
 oxy-morph.workspace = true
+
+[lints]
+workspace = true

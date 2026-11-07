@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 
 [[bin]]
 name = "oxycharacter"
@@ -21,3 +22,6 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "x11", "bevy_window", "default_font", "png",
 ] }
 bevy_egui = { version = "0.43.1", default-features = false, features = ["render", "default_fonts"] }
+
+[lints]
+workspace = true

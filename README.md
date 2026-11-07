@@ -5,7 +5,9 @@ with sliders, auto-refit its skeleton, dress it, and export rigged glTF.
 
 ![Editor](docs/images/editor-full-body.png)
 
-See **[docs/PLAN.md](docs/PLAN.md)** for scope, architecture, algorithms and milestones.
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — status, next milestones, known gaps
+- **[docs/PLAN.md](docs/PLAN.md)** — scope, architecture and algorithms
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** · **[AGENTS.md](AGENTS.md)** (AI agents) · [docs/TESTING.md](docs/TESTING.md) · [docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## Quick start
 
@@ -159,3 +161,9 @@ OXY_MAKEHUMAN_DATA=assets/cache/makehuman/makehuman/data cargo test --workspace 
 ```
 
 Assets and their licenses: [assets/LICENSES.md](assets/LICENSES.md).
+
+## License
+
+Code: MIT OR Apache-2.0 ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
+Fetched assets keep their own licences (CC0 for the MakeHuman data); see
+[assets/LICENSES.md](assets/LICENSES.md).

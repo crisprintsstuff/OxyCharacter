@@ -1,0 +1,10 @@
+{
+  "name": "oxycharacter-gltf-checks",
+  "private": true,
+  "description": "Independent checks for exported .glb files: the Khronos glTF validator and a three.js render (see docs/TESTING.md).",
+  "license": "MIT OR Apache-2.0",
+  "dependencies": {
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "three": "0.170.0"
+  }
+}
