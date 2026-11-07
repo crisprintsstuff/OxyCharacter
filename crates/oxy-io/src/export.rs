@@ -1,4 +1,5 @@
-//! Character export: the morphed body (+ accessories) as a rigged glTF.
+//! Character export: the morphed body (+ eyes and accessories) as a rigged,
+//! textured glTF.
 //!
 //! Shared by the editor and the `oxy` CLI so both produce identical files.
 
@@ -8,7 +9,10 @@ use glam::{Mat4, Vec3};
 use oxy_morph::Params;
 use oxy_rig::{pose, skin_with, transfer_nearest, Influence};
 
-use crate::gltf::{write_glb_scene, ExportMesh, ExportMorph, ExportSkeleton};
+use crate::gltf::{
+    write_glb_scene, ExportImage, ExportMesh, ExportMorph, ExportSkeleton, MeshTextures,
+};
+use crate::material::{eyes, iris, png_bytes, MaterialParams, SkinBaker};
 use crate::oxybrush::{Accessory, CUSTOM_PREFIX};
 use crate::{CharacterAsset, Result};
 
@@ -29,6 +33,12 @@ pub struct ExportOptions {
     pub bind_pose: BindPose,
     /// Export sculpted (custom) morphs as blendshapes instead of baking them.
     pub blendshapes: bool,
+    /// Bake and embed skin/eye textures (needs UVs in the asset).
+    pub textures: bool,
+    /// Skin texture size in pixels (square).
+    pub texture_size: u32,
+    /// Include eyeballs.
+    pub eyes: bool,
     /// Linear RGB skin color (set by the caller; projects store skin separately).
     #[serde(skip)]
     pub skin_color: [f32; 3],
@@ -40,7 +50,10 @@ impl Default for ExportOptions {
             skeleton: true,
             bind_pose: BindPose::Rest,
             blendshapes: false,
-            skin_color: [0.8, 0.62, 0.52],
+            textures: true,
+            texture_size: 2048,
+            eyes: true,
+            skin_color: [0.62, 0.40, 0.29],
         }
     }
 }
@@ -50,14 +63,7 @@ pub struct ExportStats {
     pub meshes: usize,
     pub bones: usize,
     pub blendshapes: usize,
-}
-
-fn srgb_to_linear(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+    pub textures: usize,
 }
 
 /// Clay color for unpainted accessories (linear).
@@ -70,9 +76,9 @@ pub fn accessory_colors(a: &Accessory) -> Option<Vec<[f32; 4]>> {
             .iter()
             .map(|c| {
                 [
-                    srgb_to_linear(c.x),
-                    srgb_to_linear(c.y),
-                    srgb_to_linear(c.z),
+                    oxy_material::srgb_to_linear(c.x),
+                    oxy_material::srgb_to_linear(c.y),
+                    oxy_material::srgb_to_linear(c.z),
                     1.0,
                 ]
             })
@@ -85,10 +91,12 @@ struct Part {
     positions: Vec<Vec3>,
     normals: Vec<Vec3>,
     indices: Vec<u32>,
+    uvs: Option<Vec<[f32; 2]>>,
     colors: Option<Vec<[f32; 4]>>,
     base_color: [f32; 3],
     skin: Option<Vec<Influence>>,
     morphs: Vec<(String, Vec<Vec3>, f32)>,
+    textures: MeshTextures,
 }
 
 fn normals_of(positions: &[Vec3], indices: &[u32]) -> Vec<Vec3> {
@@ -102,6 +110,7 @@ pub fn character_glb(
     asset: &CharacterAsset,
     params: &Params,
     accessories: &[Accessory],
+    material: &MaterialParams,
     opts: &ExportOptions,
     w: impl Write,
 ) -> Result<ExportStats> {
@@ -125,30 +134,106 @@ pub fn character_glb(
         }
     }
     let ev = asset.evaluate_full(&base_params);
-    let indices = asset.mesh.base.indices.clone();
     let n = ev.body.len();
-    let mut body = Part {
-        name: "body".into(),
-        normals: asset.mesh.base.compute_normals(&ev.body),
-        positions: ev.body.clone(),
-        indices,
-        colors: None,
-        base_color: opts.skin_color,
-        skin: None,
-        morphs: shapes
-            .iter()
-            .filter_map(|(id, label, weight)| {
-                let t = &asset.mesh.targets[asset.mesh.target_index(id)?];
-                let mut dense = vec![Vec3::ZERO; n];
-                for (&i, &d) in t.indices.iter().zip(&t.deltas) {
-                    dense[i as usize] = d;
-                }
-                Some((label.clone(), dense, *weight))
-            })
-            .collect(),
-    };
-    let mut parts = vec![];
     let rig = asset.rig.as_ref().filter(|_| opts.skeleton);
+    let render = asset.render.as_ref();
+    // Per base vertex data, gathered through the render mesh when there is one.
+    let gather = |v: Vec<Vec3>| render.map_or_else(|| v.clone(), |r| r.gather(&v));
+
+    // Textures.
+    let mut pngs: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut body_tex = MeshTextures {
+        roughness: Some(material.skin.roughness),
+        ..Default::default()
+    };
+    let mut eye_tex = MeshTextures {
+        roughness: Some(0.12),
+        ..Default::default()
+    };
+    if opts.textures {
+        if let Some(baker) = SkinBaker::new(asset, opts.texture_size.clamp(64, 8192)) {
+            let t = baker.bake(opts.skin_color, &material.skin);
+            for (slot, name, img) in [
+                (0, "skin_albedo", &t.albedo),
+                (1, "skin_normal", &t.normal),
+                (2, "skin_roughness", &t.orm),
+            ] {
+                let i = pngs.len();
+                pngs.push((name.into(), png_bytes(img)?));
+                match slot {
+                    0 => body_tex.base_color = Some(i),
+                    1 => body_tex.normal = Some(i),
+                    _ => body_tex.metallic_roughness = Some(i),
+                }
+            }
+            body_tex.roughness = None;
+        }
+        if opts.eyes {
+            eye_tex.base_color = Some(pngs.len());
+            pngs.push(("iris".into(), png_bytes(&iris(&material.eyes))?));
+        }
+    }
+    let textured_body = body_tex.base_color.is_some();
+
+    let body_morphs: Vec<(String, Vec<Vec3>, f32)> = shapes
+        .iter()
+        .filter_map(|(id, label, weight)| {
+            let t = &asset.mesh.targets[asset.mesh.target_index(id)?];
+            let mut dense = vec![Vec3::ZERO; n];
+            for (&i, &d) in t.indices.iter().zip(&t.deltas) {
+                dense[i as usize] = d;
+            }
+            Some((label.clone(), gather(dense), *weight))
+        })
+        .collect();
+    let body = Part {
+        name: "body".into(),
+        normals: gather(asset.mesh.base.compute_normals(&ev.body)),
+        positions: gather(ev.body.clone()),
+        indices: render.map_or_else(|| asset.mesh.base.indices.clone(), |r| r.indices.clone()),
+        uvs: render.map(|r| r.uvs.clone()),
+        colors: None,
+        base_color: if textured_body {
+            [1.0; 3]
+        } else {
+            opts.skin_color
+        },
+        skin: rig.map(|r| render.map_or_else(|| r.skin.clone(), |rm| rm.gather(&r.skin))),
+        morphs: body_morphs,
+        textures: body_tex,
+    };
+    let mut parts = vec![body];
+
+    if opts.eyes {
+        for e in eyes(asset, &ev, &material.eyes) {
+            let skin = rig.zip(e.bone).map(|(_, b)| {
+                vec![
+                    Influence {
+                        bones: [b as u16, 0, 0, 0],
+                        weights: [1.0, 0.0, 0.0, 0.0]
+                    };
+                    e.mesh.positions.len()
+                ]
+            });
+            parts.push(Part {
+                name: e.name.into(),
+                positions: e.mesh.positions,
+                normals: e.mesh.normals,
+                indices: e.mesh.indices,
+                uvs: eye_tex.base_color.is_some().then_some(e.mesh.uvs),
+                colors: None,
+                base_color: if eye_tex.base_color.is_some() {
+                    [1.0; 3]
+                } else {
+                    [0.85, 0.82, 0.78]
+                },
+                skin,
+                morphs: vec![],
+                textures: eye_tex,
+            });
+        }
+    }
+
     for a in accessories {
         let idx: Vec<u32> = a.triangles.iter().flatten().copied().collect();
         parts.push(Part {
@@ -156,6 +241,7 @@ pub fn character_glb(
             normals: normals_of(&a.positions, &idx),
             positions: a.positions.clone(),
             indices: idx,
+            uvs: None,
             base_color: if accessory_colors(a).is_some() {
                 [1.0; 3]
             } else {
@@ -164,12 +250,12 @@ pub fn character_glb(
             colors: accessory_colors(a),
             skin: rig.map(|r| transfer_nearest(&ev.body, &r.skin, &a.positions)),
             morphs: vec![],
+            textures: MeshTextures::default(),
         });
     }
 
     let mut skeleton = None;
     if let Some(rig) = rig {
-        body.skin = Some(rig.skin.clone());
         let mut bind = rig.bind_matrices(&ev.joints);
         if opts.bind_pose == BindPose::TPose {
             // Pose everything into the T-pose and make that the bind pose.
@@ -180,7 +266,7 @@ pub fn character_glb(
                 .zip(&bind)
                 .map(|(p, b)| *p * b.inverse())
                 .collect();
-            for part in std::iter::once(&mut body).chain(parts.iter_mut()) {
+            for part in &mut parts {
                 let skin = part.skin.as_ref().expect("skinned");
                 let (p, nrm) = skin_with(skin, &part.positions, &part.normals, &mats);
                 for (_, deltas, _) in &mut part.morphs {
@@ -210,7 +296,6 @@ pub fn character_glb(
         });
     }
 
-    parts.insert(0, body);
     let meshes: Vec<ExportMesh> = parts
         .iter()
         .map(|p| ExportMesh {
@@ -230,12 +315,19 @@ pub fn character_glb(
                     weight: *w,
                 })
                 .collect(),
+            uvs: p.uvs.as_deref(),
+            textures: p.textures,
         })
         .collect();
-    write_glb_scene(&meshes, skeleton.as_ref(), w)?;
+    let images: Vec<ExportImage> = pngs
+        .iter()
+        .map(|(name, png)| ExportImage { name, png })
+        .collect();
+    write_glb_scene(&meshes, skeleton.as_ref(), &images, w)?;
     Ok(ExportStats {
         meshes: meshes.len(),
         bones: skeleton.as_ref().map_or(0, |s| s.joint_names.len()),
         blendshapes: parts[0].morphs.len(),
+        textures: images.len(),
     })
 }

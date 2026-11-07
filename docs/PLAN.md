@@ -201,7 +201,9 @@ Original plan:
 - `oxy-project`: save/load parameters (RON), asset references by stable IDs, schema versioning + migrations.
 - Undo/redo command stack; slider search; categories (face → nose → bridge…); symmetry toggle; presets/randomize.
 
-### M4 — Materials (weeks 9–11)
+### M4 — Materials (weeks 9–11) ✅ *implemented* (procedural; see ROADMAP and ADR 0006)
+
+Original plan:
 - `oxy-material`: layer stack + GPU compositing; skin tone, makeup, tattoo decals with UV projection; eye color/iris; export baking.
 
 ### M5 — Clothing & hair (weeks 12–16)

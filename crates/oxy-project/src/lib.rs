@@ -87,6 +87,9 @@ pub struct Project {
     /// Preview pose preset name.
     pub pose: String,
     pub export: ExportOptions,
+    /// Skin and eye settings (added in 0.1 without a version bump: optional).
+    #[serde(default)]
+    pub material: oxy_io::material::MaterialParams,
     pub custom_morphs: Vec<CustomMorph>,
     pub accessories: Vec<AccessoryEntry>,
 }
@@ -102,6 +105,7 @@ impl Project {
             skin: [0.62, 0.40, 0.29],
             pose: "Rest (A-pose)".into(),
             export: ExportOptions::default(),
+            material: Default::default(),
             custom_morphs: Vec::new(),
             accessories: Vec::new(),
         }
@@ -259,6 +263,7 @@ mod tests {
                 ..Default::default()
             },
             rig: None,
+            render: None,
         }
     }
 
@@ -273,6 +278,8 @@ mod tests {
             deltas: vec![Vec3::Z * 0.01],
         });
         pr.params.insert("custom/brow".into(), 1.0);
+        pr.material.skin.freckles = 0.4;
+        pr.material.eyes.iris = [0.1, 0.3, 0.5];
         pr.accessories.push(AccessoryEntry {
             mesh: Accessory {
                 name: "Hat".into(),
@@ -300,6 +307,15 @@ mod tests {
             text.contains("\"format\": \"oxycharacter-project\""),
             "human-readable"
         );
+    }
+
+    #[test]
+    fn projects_without_material_still_open() {
+        let a = asset();
+        let mut v: serde_json::Value = serde_json::from_slice(&sample(&a).to_json()).unwrap();
+        v.as_object_mut().unwrap().remove("material");
+        let p = Project::from_json(v.to_string().as_bytes()).unwrap();
+        assert_eq!(p.material, Default::default());
     }
 
     #[test]

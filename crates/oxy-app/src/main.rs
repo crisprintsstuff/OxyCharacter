@@ -4,7 +4,7 @@
 //! oxycharacter [--bundle PATH] [--set id=value ...] [--select "Top/Sub"]
 //!              [--hover PARAM_ID] [--head] [--size WxH]
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
-//!              [--pose NAME] [--skeleton] [--pose-tab] [--open FILE.oxyc]
+//!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--iris NAME] [--open FILE.oxyc]
 //!              [--save-as FILE.oxyc] [--close]
 //!              [--screenshot out.png [--frames N]]
 //! ```
@@ -12,6 +12,7 @@
 mod bridge;
 mod document;
 mod editor;
+mod look;
 mod scene;
 mod ui;
 
@@ -49,6 +50,8 @@ struct Args {
     pose: Option<String>,
     skeleton: bool,
     pose_tab: bool,
+    material_tab: bool,
+    iris: Option<String>,
     open: Option<PathBuf>,
     save_as: Option<PathBuf>,
     close: bool,
@@ -90,6 +93,8 @@ fn parse_args() -> Result<Args, String> {
             "--pose" => a.pose = Some(val()?),
             "--skeleton" => a.skeleton = true,
             "--pose-tab" => a.pose_tab = true,
+            "--material-tab" => a.material_tab = true,
+            "--iris" => a.iris = Some(val()?),
             "--open" => a.open = Some(val()?.into()),
             "--save-as" => a.save_as = Some(val()?.into()),
             "--close" => a.close = true,
@@ -176,6 +181,7 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
                 &ed.asset,
                 &ed.params,
                 &accessories,
+                &ed.material,
                 &opts,
                 BufWriter::new(File::create(&path)?),
             )
@@ -253,6 +259,18 @@ fn main() -> ExitCode {
         }
     }
     editor.show_skeleton = args.skeleton;
+    if let Some(name) = &args.iris {
+        match ui::IRIS_PRESETS
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        {
+            Some((_, rgb)) => editor.material.eyes.iris = *rgb,
+            None => {
+                eprintln!("unknown iris colour {name}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
     if args.send_oxybrush {
         // Scripted runs never start other programs.
         editor.bridge.launch = false;
@@ -290,7 +308,9 @@ fn main() -> ExitCode {
         .insert_resource(CharacterHeight(1.7))
         .insert_resource(ViewportRect::default())
         .insert_resource(UiState {
-            right_mode: if args.pose_tab {
+            right_mode: if args.material_tab {
+                ui::RightMode::Material
+            } else if args.pose_tab {
                 ui::RightMode::Pose
             } else {
                 ui::RightMode::Morph
@@ -305,7 +325,10 @@ fn main() -> ExitCode {
             frame: 0,
             head: args.head,
         })
-        .add_systems(Startup, (scene::setup, scene::configure_gizmos))
+        .add_systems(
+            Startup,
+            (scene::setup, scene::configure_gizmos, look::setup_look).chain(),
+        )
         .add_systems(EguiPrimaryContextPass, ui::ui_system)
         .add_systems(
             Update,
@@ -320,6 +343,8 @@ fn main() -> ExitCode {
                 bridge::file_drop,
                 scene::sync_accessories,
                 scene::draw_skeleton,
+                look::bake_textures,
+                look::sync_eyes,
                 automation,
             )
                 .chain(),

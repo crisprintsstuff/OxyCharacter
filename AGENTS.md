@@ -23,6 +23,7 @@ crates/
   oxy-rig      joints/bones, refit, bind orientation, posing, skinning, presets   (no GPU)
   oxy-io       OBJ/target readers, MakeHuman CC0 importer, .oxyb bundle,
                glTF export (skinned), .oxb read/write, OxyBrush bridge            (no GPU)
+  oxy-material UV rasterizer, noise, layer stack, skin/eye bakes, eyeball mesh     (no GPU)
   oxy-project  .oxyc project format, migrations, snapshot undo history           (no GPU)
   oxy-cli      headless tools, binary `oxy`                                       (no GPU)
   oxy-app      Bevy 0.20 + egui editor, binary `oxycharacter`
@@ -90,9 +91,12 @@ from scratch (Bevy); incremental builds are seconds.
 6. **Never lose user data.** All writes are atomic (`oxy_io::oxb::write_atomic`);
    never overwrite a file the user gave us; "Send to OxyBrush" always writes a
    new file.
-7. **Units and axes.** Metres, Y up, character faces +Z, its left is +X, feet
+7. **Render mesh vs base mesh.** Drawing and export use `RenderMesh`
+   (vertices split at UV seams, `map` → base vertex). Compute on the base mesh,
+   then `gather`; never index morphs/weights by render vertex.
+8. **Units and axes.** Metres, Y up, character faces +Z, its left is +X, feet
    at y = 0 in the editor and exports (MakeHuman's decimetres are scaled 0.1).
-8. **glTF output stays valid.** Exports must pass the Khronos validator with
+9. **glTF output stays valid.** Exports must pass the Khronos validator with
    0 errors and 0 warnings (e.g. inverse bind matrices need an exact
    `0 0 0 1` bottom row).
 
@@ -159,7 +163,7 @@ behaviour), describe it as a spec and open it there. The end-to-end recipe
   `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` (package
   `mesa-vulkan-drivers`). Software rendering gives ~10 FPS; that's expected.
 - The editor's scripted options (`--set`, `--select`, `--hover`, `--head`,
-  `--pose`, `--skeleton`, `--pose-tab`, `--import-oxb [--apply-import]`,
+  `--pose`, `--skeleton`, `--pose-tab`, `--material-tab`, `--iris`, `--import-oxb [--apply-import]`,
   `--send-oxybrush`, `--open`, `--save-as`, `--close`, `--screenshot`,
   `--frames`) cover most UI states without clicking. Set `OXY_USER_DIR` to a
   scratch folder so runs don't touch `user/`.

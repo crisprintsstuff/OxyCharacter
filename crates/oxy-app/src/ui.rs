@@ -30,6 +30,7 @@ pub enum RightMode {
     #[default]
     Morph,
     Pose,
+    Material,
 }
 
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -244,7 +245,7 @@ pub fn ui_system(
                     ed.bridge.open_dialog = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    for (label, mode) in [("Pose", Some(RightMode::Pose)), ("Material", None), ("Morph", Some(RightMode::Morph))] {
+                    for (label, mode) in [("Pose", Some(RightMode::Pose)), ("Material", Some(RightMode::Material)), ("Morph", Some(RightMode::Morph))] {
                         let selected = mode == Some(state.right_mode);
                         let b = egui::Button::selectable(selected, label).min_size(Vec2::new(70.0, 24.0));
                         let r = ui.add_enabled(mode.is_some(), b).on_disabled_hover_text("Planned for a later milestone");
@@ -326,6 +327,12 @@ pub fn ui_system(
             RightMode::Pose => {
                 panel_header(ui, "Pose & Export");
                 pose_panel(ui, ed, &mut state.export_requested);
+            }
+            RightMode::Material => {
+                panel_header(ui, "Material");
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| material_panel(ui, ed));
             }
         });
 
@@ -1114,4 +1121,122 @@ fn document_windows(ctx: &egui::Context, ed: &mut Editor) {
             ed.session.as_mut().expect("session").notes.clear();
         }
     }
+}
+
+/// Linear-RGB colour button.
+fn color_button(ui: &mut egui::Ui, c: &mut [f32; 3]) -> bool {
+    let mut rgba = egui::Rgba::from_rgb(c[0], c[1], c[2]);
+    let changed = egui::color_picker::color_edit_button_rgba(
+        ui,
+        &mut rgba,
+        egui::color_picker::Alpha::Opaque,
+    )
+    .changed();
+    if changed {
+        *c = [rgba.r(), rgba.g(), rgba.b()];
+    }
+    changed
+}
+
+fn amount_row(ui: &mut egui::Ui, label: &str, v: &mut f32, color: Option<&mut [f32; 3]>) {
+    ui.horizontal(|ui| {
+        ui.add_sized([86.0, 18.0], egui::Label::new(label));
+        if let Some(c) = color {
+            color_button(ui, c);
+        }
+        ui.spacing_mut().slider_width = (ui.available_width() - 50.0).max(60.0);
+        ui.add(
+            egui::Slider::new(v, 0.0..=1.0)
+                .show_value(true)
+                .fixed_decimals(2),
+        );
+    });
+}
+
+/// Iris colour presets (linear RGB).
+pub const IRIS_PRESETS: &[(&str, [f32; 3])] = &[
+    ("Brown", [0.20, 0.11, 0.05]),
+    ("Hazel", [0.32, 0.22, 0.08]),
+    ("Amber", [0.55, 0.30, 0.05]),
+    ("Green", [0.12, 0.28, 0.12]),
+    ("Blue", [0.12, 0.25, 0.48]),
+    ("Grey", [0.30, 0.33, 0.36]),
+];
+
+fn material_panel(ui: &mut egui::Ui, ed: &mut Editor) {
+    Frame::NONE.inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
+        if ed.asset.render.is_none() {
+            ui.label(RichText::new("This bundle has no UVs; rebuild it with tools/fetch-assets.sh for textured skin.").color(TEXT_DIM));
+            ui.add_space(6.0);
+        }
+        ui.label(RichText::new("Skin").strong());
+        ui.horizontal_wrapped(|ui| {
+            for (name, rgb) in SKIN_TONES {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+                ui.painter().rect_filled(rect, CornerRadius::same(4), egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]));
+                if ed.skin == *rgb || resp.hovered() {
+                    ui.painter().rect_stroke(rect, CornerRadius::same(4), Stroke::new(2.0, ACCENT), StrokeKind::Outside);
+                }
+                if resp.on_hover_text(*name).clicked() {
+                    ed.skin = *rgb;
+                }
+            }
+            color_button(ui, &mut ed.skin);
+        });
+        let s = &mut ed.material.skin;
+        amount_row(ui, "Variation", &mut s.variation, None);
+        amount_row(ui, "Detail", &mut s.detail, None);
+        ui.horizontal(|ui| {
+            ui.add_sized([86.0, 18.0], egui::Label::new("Roughness"));
+            ui.spacing_mut().slider_width = (ui.available_width() - 50.0).max(60.0);
+            ui.add(egui::Slider::new(&mut s.roughness, 0.25..=0.85).fixed_decimals(2));
+        });
+        amount_row(ui, "Freckles", &mut s.freckles, Some(&mut s.freckle_color));
+        amount_row(ui, "Blush", &mut s.blush, Some(&mut s.blush_color));
+        amount_row(ui, "Eye shadow", &mut s.eye_shadow, Some(&mut s.eye_shadow_color));
+        amount_row(ui, "Lips", &mut s.lips, Some(&mut s.lip_color));
+        if ui.button("New pattern").on_hover_text("Re-seed the procedural variation").clicked() {
+            s.seed = s.seed.wrapping_add(1);
+        }
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label(RichText::new("Eyes").strong());
+        let e = &mut ed.material.eyes;
+        ui.horizontal_wrapped(|ui| {
+            for (name, rgb) in IRIS_PRESETS {
+                let (rect, resp) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
+                ui.painter().circle_filled(rect.center(), 11.0, egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]));
+                if e.iris == *rgb || resp.hovered() {
+                    ui.painter().circle_stroke(rect.center(), 12.0, Stroke::new(2.0, ACCENT));
+                }
+                if resp.on_hover_text(*name).clicked() {
+                    e.iris = *rgb;
+                }
+            }
+            color_button(ui, &mut e.iris);
+        });
+        let old_size = e.size;
+        ui.add(egui::Slider::new(&mut e.iris_angle, 0.45..=0.65).text("Iris size"));
+        ui.add(egui::Slider::new(&mut e.pupil, 0.2..=0.6).text("Pupil"));
+        ui.add(egui::Slider::new(&mut e.size, 0.16..=0.22).text("Eyeball size"));
+        if e.size != old_size {
+            ed.dirty = true; // eye geometry
+        }
+
+        ui.add_space(10.0);
+        ui.separator();
+        ui.label(RichText::new("Export").strong());
+        ui.checkbox(&mut ed.export.textures, "Bake and embed textures");
+        ui.add_enabled_ui(ed.export.textures, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Size");
+                for size in [1024u32, 2048, 4096] {
+                    ui.selectable_value(&mut ed.export.texture_size, size, size.to_string());
+                }
+            });
+        });
+        ui.checkbox(&mut ed.export.eyes, "Include eyes");
+        ui.label(RichText::new("Skin textures are generated from these settings (no image files), so they follow any body shape.").size(11.0).color(TEXT_DIM));
+    });
 }

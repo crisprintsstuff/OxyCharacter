@@ -27,6 +27,7 @@ pub struct DocState {
     pub skin: [f32; 3],
     pub pose: usize,
     pub export: oxy_io::export::ExportOptions,
+    pub material: oxy_io::material::MaterialParams,
     key: Vec<String>,
     pub content: Arc<Content>,
 }
@@ -37,6 +38,7 @@ impl PartialEq for DocState {
             && self.skin == o.skin
             && self.pose == o.pose
             && self.export == o.export
+            && self.material == o.material
             && self.key == o.key
     }
 }
@@ -199,6 +201,7 @@ impl Editor {
             skin: self.skin,
             pose: self.pose,
             export: self.export.clone(),
+            material: self.material.clone(),
             key: content_key(self),
             content: Arc::new(Content {
                 custom: self.custom_morphs_now(),
@@ -238,6 +241,7 @@ impl Editor {
             skin: self.skin,
             pose: self.pose,
             export: self.export.clone(),
+            material: self.material.clone(),
             key,
             content,
         }
@@ -254,6 +258,7 @@ impl Editor {
         self.skin = state.skin;
         self.pose = state.pose.min(oxy_rig::pose::PRESETS.len() - 1);
         self.export = state.export.clone();
+        self.material = state.material.clone();
         if content_key(self) != state.key {
             // Sculpted morphs: replace the registered set.
             let ids: Vec<String> = self
@@ -338,6 +343,7 @@ impl Editor {
         match changed.as_slice() {
             [] if a.skin != b.skin => "Skin tone".into(),
             [] if a.pose != b.pose => format!("Pose: {}", oxy_rig::pose::PRESETS[b.pose].name),
+            [] if a.material != b.material => "Material".into(),
             [] => "Export options".into(),
             [one] => self
                 .asset
@@ -371,6 +377,7 @@ impl Editor {
         p.skin = snap.skin;
         p.pose = oxy_rig::pose::PRESETS[snap.pose].name.into();
         p.export = snap.export.clone();
+        p.material = snap.material.clone();
         // Embed sculpted morphs that are in use.
         p.custom_morphs = snap
             .content
@@ -458,6 +465,7 @@ impl Editor {
                 .position(|p| p.name == project.pose)
                 .unwrap_or(0),
             export: project.export.clone(),
+            material: project.material.clone(),
             key: vec!["<forced>".into()],
             content: Arc::new(Content {
                 custom,
@@ -478,6 +486,7 @@ impl Editor {
             skin: crate::editor::SKIN_TONES[2].1,
             pose: 0,
             export: oxy_io::export::ExportOptions::default(),
+            material: Default::default(),
             key: vec!["<forced>".into()],
             content: Arc::new(Content {
                 custom: self.custom_morphs_now(),
@@ -682,6 +691,7 @@ mod tests {
             },
             catalog,
             rig: None,
+            render: None,
         };
         let mut ed = Editor::new(asset, dir);
         ed.bridge.launch = false;
@@ -708,6 +718,11 @@ mod tests {
         ed.set("nose", 0.8);
         ed.commit_history();
         assert_eq!(ed.session().history.undo_label(), Some("Nose"));
+        ed.material.skin.freckles = 0.5;
+        ed.commit_history();
+        assert_eq!(ed.session().history.undo_label(), Some("Material"));
+        ed.undo();
+        assert_eq!(ed.material.skin.freckles, 0.0);
         ed.undo();
         assert_eq!(ed.value("nose"), 0.5);
         ed.undo();
@@ -742,6 +757,8 @@ mod tests {
         ed.skin = [0.3, 0.2, 0.1];
         ed.set_pose(1);
         ed.export.blendshapes = true;
+        ed.material.skin.blush = 0.6;
+        ed.material.eyes.iris = [0.1, 0.4, 0.2];
         assert!(ed.has_unsaved_changes());
 
         let path = dir.join("hero.oxyc");
@@ -765,6 +782,8 @@ mod tests {
         assert_eq!(ed.skin, [0.3, 0.2, 0.1]);
         assert_eq!(ed.pose, 1);
         assert!(ed.export.blendshapes);
+        assert_eq!(ed.material.skin.blush, 0.6);
+        assert_eq!(ed.material.eyes.iris, [0.1, 0.4, 0.2]);
         assert!(!ed.has_unsaved_changes(), "freshly opened");
         assert!(!ed.session().history.can_undo());
         assert_eq!(ed.session().recent.len(), 1);

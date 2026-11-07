@@ -1,0 +1,17 @@
+[package]
+name = "oxy-material"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+glam.workspace = true
+serde.workspace = true
+rayon = "1.10"
+oxy-mesh.workspace = true
+oxy-rig.workspace = true
+
+[lints]
+workspace = true

@@ -3,7 +3,7 @@
 //! ```text
 //! oxy import-makehuman <makehuman/data dir> <out.oxyb>
 //! oxy info <bundle.oxyb>
-//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--morphs DIR] [param=value ...]
+//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [param=value ...]
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
 //! ```
@@ -120,6 +120,11 @@ fn run(args: &[String]) -> Result<(), String> {
                     "--tpose" => opts.bind_pose = export::BindPose::TPose,
                     "--no-skeleton" => opts.skeleton = false,
                     "--blendshapes" => opts.blendshapes = true,
+                    "--no-textures" => opts.textures = false,
+                    "--no-eyes" => opts.eyes = false,
+                    "--texture-size" => {
+                        opts.texture_size = it.next().and_then(|v| v.parse().ok()).ok_or("--texture-size needs a number")?;
+                    }
                     "--morphs" => {
                         let dir = it.next().ok_or("--morphs needs a folder")?;
                         let (morphs, errors) = oxybrush::load_custom_morphs(Path::new(dir), a.mesh.base.vertex_count());
@@ -136,11 +141,11 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let values = parse_params(&a, &params)?;
             let f = File::create(out).map_err(|e| format!("{out}: {e}"))?;
-            let st = export::character_glb(&a, &values, &[], &opts, BufWriter::new(f)).map_err(|e| e.to_string())?;
-            println!("wrote {out}: {} mesh(es), {} bones, {} blendshape(s)", st.meshes, st.bones, st.blendshapes);
+            let st = export::character_glb(&a, &values, &[], &Default::default(), &opts, BufWriter::new(f)).map_err(|e| e.to_string())?;
+            println!("wrote {out}: {} mesh(es), {} bones, {} blendshape(s), {} texture(s)", st.meshes, st.bones, st.blendshapes, st.textures);
         }
         _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--morphs DIR] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
         }
     }
     Ok(())

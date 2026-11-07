@@ -1,6 +1,6 @@
 //! `.oxyb` — OxyCharacter's compact binary container for a [`CharacterAsset`].
 //!
-//! Layout (all little-endian), version 2:
+//! Layout (all little-endian), version 3:
 //! ```text
 //! b"OXYB"  u32 version  u32 header_len  header (JSON: meta, catalog, rig, counts)
 //! base positions  [f32; 3] × vertex_count
@@ -8,8 +8,10 @@
 //! aux points      [f32; 3] × aux_count
 //! per target:     u32 × len, [f32; 3] × len        (body deltas)
 //!                 u32 × aux_len, [f32; 3] × aux_len (aux deltas)
+//! render mesh     u32 × render_vertices (map), [f32; 2] × render_vertices (uv),
+//!                 u32 × render_indices                    (v3, if present)
 //! ```
-//! Version 1 (no aux points, no rig) is still read.
+//! Versions 1 (no aux points, no rig) and 2 (no render mesh) are still read.
 //! Parsing hundreds of text targets takes seconds; this loads in milliseconds.
 
 use std::io::{Read, Write};
@@ -23,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::{AssetMeta, CharacterAsset, IoError, Result};
 
 const MAGIC: &[u8; 4] = b"OXYB";
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 struct Header {
@@ -37,6 +39,9 @@ struct Header {
     aux_count: usize,
     #[serde(default)]
     rig: Option<Rig>,
+    /// (render vertices, render indices), v3.
+    #[serde(default)]
+    render: Option<(usize, usize)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -74,6 +79,10 @@ pub fn write(asset: &CharacterAsset, mut w: impl Write) -> Result<()> {
             .collect(),
         aux_count: m.aux.len(),
         rig: asset.rig.clone(),
+        render: asset
+            .render
+            .as_ref()
+            .map(|r| (r.map.len(), r.indices.len())),
     };
     let json = serde_json::to_vec(&header)?;
     w.write_all(MAGIC)?;
@@ -88,6 +97,17 @@ pub fn write(asset: &CharacterAsset, mut w: impl Write) -> Result<()> {
         put_vec3s(&mut w, &t.deltas)?;
         put_u32s(&mut w, &t.aux_indices)?;
         put_vec3s(&mut w, &t.aux_deltas)?;
+    }
+    if let Some(r) = &asset.render {
+        put_u32s(&mut w, &r.map)?;
+        let uv: Vec<u8> = r
+            .uvs
+            .iter()
+            .flatten()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        w.write_all(&uv)?;
+        put_u32s(&mut w, &r.indices)?;
     }
     Ok(())
 }
@@ -170,6 +190,32 @@ pub fn read(mut r: impl Read) -> Result<CharacterAsset> {
         }
         targets.push(t);
     }
+    let render = match header.render.filter(|_| version >= 3) {
+        Some((rv, ri)) => {
+            let map = c.u32s(rv, n, "render map")?;
+            let uvs = c
+                .take(rv * 8)?
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|b| {
+                    [
+                        f32::from_le_bytes(b[0..4].try_into().unwrap()),
+                        f32::from_le_bytes(b[4..8].try_into().unwrap()),
+                    ]
+                })
+                .collect();
+            let indices = c.u32s(ri, rv, "render triangle")?;
+            let r = oxy_mesh::RenderMesh { map, uvs, indices };
+            if !r.matches(&base) {
+                return Err(IoError::Invalid(
+                    "bundle render mesh doesn't match the base mesh".into(),
+                ));
+            }
+            Some(r)
+        }
+        None => None,
+    };
     if let Some(rig) = &header.rig {
         rig.validate(n, aux.len())
             .map_err(|e| IoError::Invalid(format!("bundle rig: {e}")))?;
@@ -179,6 +225,7 @@ pub fn read(mut r: impl Read) -> Result<CharacterAsset> {
         mesh: MorphableMesh { base, targets, aux },
         catalog: header.catalog,
         rig: header.rig,
+        render,
     })
 }
 
@@ -227,6 +274,11 @@ mod tests {
             },
             catalog: Catalog::default(),
             rig: Some(rig.clone()),
+            render: Some(oxy_mesh::RenderMesh::from_corners([
+                (0, [0.0, 0.0]),
+                (1, [1.0, 0.0]),
+                (2, [0.0, 1.0]),
+            ])),
         };
         let mut bytes = Vec::new();
         write(&asset, &mut bytes).unwrap();
@@ -236,6 +288,7 @@ mod tests {
         assert_eq!(back.mesh.targets[0], t);
         assert_eq!(back.mesh.aux, vec![Vec3::Y * 2.0]);
         assert_eq!(back.rig, Some(rig));
+        assert_eq!(back.render, asset.render);
         assert!(read(&bytes[..bytes.len() - 1]).is_err());
     }
 

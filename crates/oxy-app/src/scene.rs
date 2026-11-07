@@ -76,7 +76,11 @@ pub fn setup(
     // We spawn the egui camera ourselves (see below).
     egui_settings.auto_create_primary_context = false;
     let base = &editor.asset.mesh.base;
-    let n = base.vertex_count();
+    // Draw the UV-seamed render mesh when the asset has one.
+    let (n, indices) = match &editor.asset.render {
+        Some(r) => (r.vertex_count(), r.indices.clone()),
+        None => (base.vertex_count(), base.indices.clone()),
+    };
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
@@ -84,7 +88,11 @@ pub fn setup(
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; n]);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; n]);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0f32; 4]; n]);
-    mesh.insert_indices(Indices::U32(base.indices.clone()));
+    if let Some(r) = &editor.asset.render {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, r.uvs.clone());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, vec![[1.0f32, 0.0, 0.0, 1.0]; n]);
+    }
+    mesh.insert_indices(Indices::U32(indices));
 
     let [r, g, b] = editor.skin;
     commands.spawn((
@@ -173,8 +181,13 @@ pub fn update_character(
 ) {
     let (mesh_handle, mat_handle) = *query;
     if let Some(mut mat) = materials.get_mut(&mat_handle.0) {
-        let [r, g, b] = editor.skin;
-        let c = Color::linear_rgb(r, g, b);
+        // Textured skin carries the tone itself.
+        let c = if mat.base_color_texture.is_some() {
+            Color::WHITE
+        } else {
+            let [r, g, b] = editor.skin;
+            Color::linear_rgb(r, g, b)
+        };
         if mat.base_color != c {
             mat.base_color = c;
         }
@@ -200,6 +213,16 @@ pub fn update_character(
         height.0 = hi.y - lo.y;
         let rest_normals = ed.asset.mesh.base.compute_normals(&ev.body);
         let (pos, normals) = ed.apply_pose(&ev, &rest_normals);
+        ed.update_eyes(&ev);
+        let (pos, normals) = match &ed.asset.render {
+            Some(r) => {
+                let (p, n) = (r.gather(&pos), r.gather(&normals));
+                let t = oxy_mesh::compute_tangents(&p, &n, &r.uvs, &r.indices);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, t);
+                (p, n)
+            }
+            None => (pos, normals),
+        };
         mesh.insert_attribute(
             Mesh::ATTRIBUTE_POSITION,
             pos.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
@@ -246,6 +269,10 @@ pub fn update_character(
                 [c.x, c.y, c.z, 1.0]
             })
             .collect();
+        let colors = match &ed.asset.render {
+            Some(r) => r.gather(&colors),
+            None => colors,
+        };
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
         ed.highlight_dirty = false;
     }

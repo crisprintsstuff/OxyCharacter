@@ -47,6 +47,18 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
+## Skin and eyes
+
+The **Material** tab (top right) sets the look. Skin is **procedural**: a
+layer stack (tone, variation, freckles, blush, eye shadow, lips, surface
+detail, roughness) baked into albedo, normal and roughness textures over the
+body's UVs. Face regions come from the rig's face-bone weights, so they follow
+any face shape. Eyes are generated eyeballs on the rig's eye bones with a
+procedural iris (presets or any colour). No image files are needed; exports
+embed the baked textures (1024–4096 px) and pass the glTF validator.
+
+![Material tab with procedural skin and blue eyes](docs/images/material-head.png)
+
 ## Projects, undo and autosave
 
 - **File › New / Open / Open recent / Save / Save as** — projects are small,
@@ -91,7 +103,7 @@ and deform in three.js. They have not yet been tried in Blender, Godot, Unity
 or Unreal.
 
 ```sh
-oxy export assets/generated/makehuman.oxyb hero.glb --tpose gender=1 muscle=0.7
+oxy export assets/generated/makehuman.oxyb hero.glb --tpose --texture-size 2048 gender=1 muscle=0.7
 oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/morphs
 ```
 
@@ -142,7 +154,8 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | OxyBrush bridge (send, live re-import as morphs/accessories) | ✅ |
 | M2 rigged & exportable (skeleton refit, poses, skinned glTF, T-pose bind, blendshapes) | ✅ |
 | M3 project files, undo/redo, autosave & recovery | ✅ |
-| M4 materials | next |
+| M4 materials (UVs, procedural skin, eyes, textured glTF) | ✅ |
+| M5 clothing & hair | next |
 
 | Crate | What it does |
 |---|---|
@@ -150,6 +163,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | `oxy-morph` | Sliders, macro grids with gains, parameter catalog |
 | `oxy-rig` | Joints anchored to body/aux points, bones, posing, skinning, weight transfer, pose presets |
 | `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
+| `oxy-material` | UV rasterizer, 3D noise, layer stack, skin regions from bone weights, texture encoding, eyeballs + iris |
 | `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |
 | `oxy-cli` | `oxy` command-line tool |
 | `oxy-app` | Bevy + egui editor (`oxycharacter`) |
