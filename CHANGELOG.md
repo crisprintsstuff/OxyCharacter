@@ -6,6 +6,14 @@ development branch. The project has not made a release yet.
 ## [Unreleased] — 0.1.0
 
 ### Added
+- **Editor chrome:** the window follows the Oxy family layout (dark panels, blue
+  accent, rounded cards) from `crates/oxy-app/src/theme.rs`, so it can stay in
+  step with OxyBrush. Morph, Material, Pose and Export are a centered mode
+  switch; presets, skin tones and accessories sit on a bottom shelf; morph
+  categories and sliders stack on the right; mesh stats and the OxyBrush link
+  sit in the status bar. The typed-path file dialog uses the same theme. The
+  UI face is Roboto (Apache-2.0); icons are original geometry. See
+  [ADR 0008](docs/adr/0008-oxy-family-theme.md).
 - **Native file dialogs.** Open, Save as, glTF export and Import .oxb use the
   system file chooser (the `rfd` crate, polled asynchronously so the editor
   keeps drawing) with filters for `.oxyc`, `.oxb` and `.glb` and a sensible

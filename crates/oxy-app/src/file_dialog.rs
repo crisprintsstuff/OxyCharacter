@@ -12,13 +12,11 @@ use std::sync::{Mutex, OnceLock};
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
-use bevy_egui::egui::{self, Color32, RichText, Vec2};
+use bevy_egui::egui::{self, RichText, Vec2};
 
 use crate::document::{After, PathDialog};
 use crate::editor::Editor;
-
-/// Dim text, same tone as the rest of the editor.
-const TEXT_DIM: Color32 = Color32::from_rgb(150, 154, 160);
+use crate::theme::TEXT_DIM;
 
 /// Where a dialog opens, and the path the typed fallback shows.
 #[derive(Debug, Clone, PartialEq, Eq)]

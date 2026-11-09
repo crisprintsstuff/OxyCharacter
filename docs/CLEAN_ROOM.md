@@ -37,5 +37,7 @@ Process:
 | 2026-11-09 | rfd 0.18 (github.com/PolyMeilex/rfd) | MIT | Native open/save dialogs | Dependency, XDG portal backend only (no GTK). Typed-path dialog remains when the portal is absent ([ADR 0007](adr/0007-native-file-dialogs.md)) |
 | 2026-11-09 | Blender 4.0.2 glTF importer | GPL-2.0-or-later program, used only as an external process | Check exported skins, shape keys, materials | `tools/check-gltf-engines/blender_check.py` drives `blender --background`. No Blender source copied or linked |
 | 2026-11-09 | Godot 4.7.2 glTF importer | MIT engine, test tool only | Same checks, headless | `tools/check-gltf-engines/godot/check.gd` drives the official binary. No Godot source copied |
+| 2026-11-09 | OxyBrush editor mockup supplied with the task (sister application; the image is not committed) | Original design for our sister project | Family chrome: dark panels, blue accent, mode switch, tool rail, shelf, stacked inspector, status bar | Layout and density only. OxyCharacter maps its own editors onto that chrome ([ADR 0008](adr/0008-oxy-family-theme.md)). Icons are original geometry in `theme.rs`. Type is Roboto (Apache-2.0). No commercial UI was consulted for this restyle |
+| 2026-11-09 | Roboto v2.138 (github.com/googlefonts/roboto) | Apache-2.0 | UI typeface | The Regular face is bundled at `assets/fonts/Roboto-Regular.ttf`; the upstream license text is `assets/fonts/LICENSE-ROBOTO`. Not used as a source of icons or layout |
 
 Add new rows at the bottom.

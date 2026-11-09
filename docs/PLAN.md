@@ -232,28 +232,31 @@ Original plan:
 
 ## 5a. Editor UI layout
 
-A conventional three-panel 3D-editor layout (shared by most DCC tools), with
-OxyCharacter's own styling (dark theme, blue accent, text-and-symbol buttons):
+The chrome is the Oxy family theme ([ADR 0008](adr/0008-oxy-family-theme.md)):
+near-black panels, a blue accent, a centered mode switch and a bottom shelf.
+Tokens live in `crates/oxy-app/src/theme.rs` (egui only) so OxyBrush can use
+the same values later. Icons are original geometry; the UI face is Roboto.
 
 ```
-┌ Menu: File · Edit · View ───────────────────────────────────────────────────┐
-├ Toolbar: Reset · Random · Body/Head framing · Symmetry · Export   Morph|Material|Pose ┤
-├──────────────┬──────────────────────────────────────┬───────────────────────┤
-│ Content      │ Viewport                             │ Morph                 │
-│ [Presets|Skin]│  stats overlay (verts, tris, morphs) │  search               │
-│  filter chips│                                      │  category tree        │
-│  preset cards│        3D character, orbit camera    │   (modified counts)   │
-│  (procedural │   hovered slider's region is tinted  │  sliders: label,      │
-│  silhouettes)│                                      │   value, reset, ends  │
-│              │                                      │  [modified only][sym] │
-├──────────────┴──────────────────────────────────────┴───────────────────────┤
-│ Status bar: last action · base-mesh license                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌ OxyCharacter  File Edit Mode Window Viewport Help    Morph|Material|Pose|Export   Search…  ↩ ↪ ┐
+├ Tool options for the active mode (mirror X, pose, bind pose, material amounts)              ┤
+├──┬──────────────────────────────────────────────────────────────┬───────────────────────────┤
+│☰ │ Viewport (vignette, grid floor, axis gizmo)                  │ Categories / list         │
+│  │        3D character, orbit camera                            │                           │
+│  │        hovered slider's region is tinted                     │ Properties · sliders      │
+├──┴──────────────────────────────────────────────────────────────┴───────────────────────────┤
+│ Shelf: Presets · Skin · Accessories          category list + round thumbnail cards         │
+│ Status: verts · tris · height · morphs · FPS          action          Connected · mode     │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Behaviours: hovering or dragging a slider tints the affected region; symmetric
-editing links `l-`/`r-` sliders; double-click a slider to reset it; "Show
-modified only" filters the list; search covers labels, ids and categories.
+editing links `l-`/`r-` sliders (the X axis; Y and Z are shown disabled);
+double-click a slider to reset it; "Modified" filters the list; search covers
+labels, ids and categories and switches to Morph. Pose, material and export
+options are the other modes. The shelf holds body presets, skin tones and
+OxyBrush accessories. Mesh stats and the OxyBrush link are on the status bar;
+the base-mesh licence is in Help → About and on the stats tooltip.
 
 ## 6. Repository layout (target)
 
