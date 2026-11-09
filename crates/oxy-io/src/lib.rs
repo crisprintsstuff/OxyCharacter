@@ -9,12 +9,15 @@
 //! * [`material`]  — character skin/eye textures and eye meshes.
 //! * [`oxb`]       — OxyBrush project files (`.oxb`), read and write.
 //! * [`oxybrush`]  — the OxyBrush bridge: send a character, bring sculpts back.
+//! * [`locate`]    — where an installed build finds the character bundle and
+//!   where it writes user files.
 
 pub use glam;
 
 pub mod bundle;
 pub mod export;
 pub mod gltf;
+pub mod locate;
 pub mod makehuman;
 pub mod material;
 pub mod obj;

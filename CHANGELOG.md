@@ -1,11 +1,22 @@
 # Changelog
 
 All notable changes to OxyCharacter. Dates are when the change landed on the
-development branch. The project has not made a release yet.
+development branch. Publishing a version is a git tag; see
+[CONTRIBUTING.md](CONTRIBUTING.md#cutting-a-release).
 
-## [Unreleased] — 0.1.0
+## [Unreleased]
+
+## [0.0.1-alpha] — 2026-11-09
 
 ### Added
+- **Release packages.** Pushing a tag `v*` builds the editor and the CLI for
+  Linux x86_64, macOS (universal) and Windows x86_64 and publishes a GitHub
+  Release. The CC0 character bundle is built in that workflow and shipped in
+  the package; the app does not download it. Windows gets an installer and a
+  portable zip, macOS a disk image, Linux a tar archive and an AppImage.
+  Checksums are `SHA256SUMS.txt`. Tags containing `-alpha`, `-beta` or `-rc`
+  are pre-releases. See [the notes](docs/release-notes/v0.0.1-alpha.md) and
+  [ADR 0010](docs/adr/0010-release-packages.md).
 - **Clothing and hair (M5):** `oxy-fit` binds garments to the body and refits
   them when it changes (surface fit, loose radial-basis fit, push-out,
   tightness); smoothed skin-weight transfer; hide-under masks, including a

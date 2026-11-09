@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-09 (M5) · **Version:** 0.1.0 (unreleased)
+**Last updated:** 2026-11-09 (release packages) · **Version:** 0.0.1-alpha
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -144,7 +144,16 @@ Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
 - **Poses are presets** only; no interactive bone posing or animation clips.
 - **Breast/cup and proportion targets** that depend on body type are not
   imported yet.
-- **Packaging/releases:** none yet (no installers, no release workflow).
+- **The v0.0.1-alpha tag is not pushed by the packaging change.** The
+  workflow is `.github/workflows/release.yml`. A `workflow_dispatch` run
+  builds the packages and does not publish; pushing `v0.0.1-alpha` publishes
+  the pre-release. Installers were exercised on the GitHub runners (see the
+  pull request for that run). The editor GUI was smoked under Linux lavapipe
+  from the packaged layout. It was not opened on a Windows or macOS desktop,
+  and the macOS build is ad-hoc signed until Apple secrets are configured.
+- **Clothing is still rough.** The starter garments are generated shells.
+  Edges, sleeve joins and layering can look crude. Garments do not collide
+  with each other. Hair's anisotropic highlight is in the glTF only.
 
 ## How to update this file
 

@@ -40,8 +40,6 @@ use editor::Editor;
 use scene::{CharacterHeight, Orbit, ViewportRect};
 use ui::UiState;
 
-const DEFAULT_BUNDLE: &str = "assets/generated/makehuman.oxyb";
-
 #[derive(Default)]
 struct Args {
     bundle: Option<PathBuf>,
@@ -227,11 +225,33 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let bundle = args
+    // Installed builds keep makehuman.oxyb next to the executable (or in the
+    // macOS app's Resources, or the AppImage's share directory). A source
+    // checkout still resolves assets/generated/makehuman.oxyb from the
+    // current directory. See oxy_io::locate and ADR 0010.
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("oxycharacter"));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let explicit = args
         .bundle
         .clone()
-        .or_else(|| std::env::var_os("OXY_BUNDLE").map(PathBuf::from))
-        .unwrap_or_else(|| DEFAULT_BUNDLE.into());
+        .or_else(|| std::env::var_os("OXY_BUNDLE").map(PathBuf::from));
+    let bundle = match oxy_io::locate::find_bundle(explicit.as_deref(), &exe, &cwd) {
+        Ok(path) => path,
+        Err(tried) => {
+            eprintln!(
+                "could not find the character bundle ({}).",
+                oxy_io::locate::BUNDLE_NAME
+            );
+            eprintln!("looked in:");
+            for path in tried {
+                eprintln!("  {}", path.display());
+            }
+            eprintln!(
+                "pass --bundle PATH, set OXY_BUNDLE, or run tools/fetch-assets.sh from a source checkout"
+            );
+            return ExitCode::FAILURE;
+        }
+    };
     let asset = match File::open(&bundle)
         .map_err(oxy_io::IoError::from)
         .and_then(|f| oxy_io::bundle::read(BufReader::new(f)))
@@ -244,8 +264,9 @@ fn main() -> ExitCode {
         }
     };
 
-    let user_dir =
-        std::env::var_os("OXY_USER_DIR").map_or_else(|| PathBuf::from("user"), PathBuf::from);
+    let user_dir = std::env::var_os("OXY_USER_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| oxy_io::locate::user_dir_from_env(&exe, &cwd));
     let mut editor = Editor::new(asset, &user_dir);
     editor.load_custom_morphs();
     editor.init_session(&user_dir);
