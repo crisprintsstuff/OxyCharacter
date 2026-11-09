@@ -6,12 +6,14 @@
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
 //!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--iris NAME] [--open FILE.oxyc]
 //!              [--save-as FILE.oxyc] [--close]
+//!              [--dialog open|save|export|import]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
 mod bridge;
 mod document;
 mod editor;
+mod file_dialog;
 mod look;
 mod scene;
 mod ui;
@@ -28,6 +30,7 @@ use bevy::{
 };
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
+use document::PathDialog;
 use editor::Editor;
 use scene::{CharacterHeight, Orbit, ViewportRect};
 use ui::UiState;
@@ -55,6 +58,8 @@ struct Args {
     open: Option<PathBuf>,
     save_as: Option<PathBuf>,
     close: bool,
+    /// Show the typed-path dialog (screenshot / automation). Skips the native dialog.
+    dialog: Option<PathDialog>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -98,6 +103,19 @@ fn parse_args() -> Result<Args, String> {
             "--open" => a.open = Some(val()?.into()),
             "--save-as" => a.save_as = Some(val()?.into()),
             "--close" => a.close = true,
+            "--dialog" => {
+                a.dialog = Some(match val()?.as_str() {
+                    "open" => PathDialog::Open,
+                    "save" | "save-as" => PathDialog::SaveAs,
+                    "export" => PathDialog::Export,
+                    "import" | "import-oxb" => PathDialog::ImportOxb,
+                    other => {
+                        return Err(format!(
+                            "--dialog expects open, save, export or import (got {other})"
+                        ))
+                    }
+                })
+            }
             "-h" | "--help" => return Err("see crate docs: oxycharacter [--bundle PATH] [--set id=v] [--select Top/Sub] [--hover ID] [--head] [--size WxH] [--import-oxb FILE [--apply-import]] [--screenshot out.png [--frames N]]".into()),
             other => return Err(format!("unknown argument {other}")),
         }
@@ -156,9 +174,9 @@ fn automation(
 }
 
 fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
-    if !std::mem::take(&mut state.export_requested) {
+    let Some(path) = state.export_path.take() else {
         return;
-    }
+    };
     let ed = &mut *editor;
     let accessories: Vec<oxy_io::oxybrush::Accessory> = ed
         .accessories
@@ -170,22 +188,19 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
         skin_color: ed.skin,
         ..ed.export.clone()
     };
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let path = PathBuf::from(format!("exports/character-{stamp}.glb"));
-    let result = std::fs::create_dir_all("exports")
-        .map_err(oxy_io::IoError::from)
-        .and_then(|_| {
-            oxy_io::export::character_glb(
-                &ed.asset,
-                &ed.params,
-                &accessories,
-                &ed.material,
-                &opts,
-                BufWriter::new(File::create(&path)?),
-            )
-        });
+    let result = (|| {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        oxy_io::export::character_glb(
+            &ed.asset,
+            &ed.params,
+            &accessories,
+            &ed.material,
+            &opts,
+            BufWriter::new(File::create(&path)?),
+        )
+    })();
     ed.status = match result {
         Ok(st) => format!(
             "Exported {} ({} mesh(es), {} bones, {} blendshape(s))",
@@ -289,6 +304,11 @@ fn main() -> ExitCode {
         if args.apply_import {
             editor.apply_pending();
         }
+    }
+    if let Some(kind) = args.dialog {
+        let s = editor.session.as_mut().expect("session");
+        s.force_typed = true;
+        s.dialog_request = Some(kind);
     }
 
     App::new()

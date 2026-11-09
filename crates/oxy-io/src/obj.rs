@@ -21,6 +21,17 @@ impl ObjData {
     pub fn group_index(&self, name: &str) -> Option<usize> {
         self.groups.iter().position(|g| g == name)
     }
+
+    /// Fan-triangulate every face, keeping the file's winding.
+    pub fn triangles(&self) -> Vec<[u32; 3]> {
+        let mut out = Vec::new();
+        for (face, _) in &self.faces {
+            for i in 1..face.len().saturating_sub(1) {
+                out.push([face[0], face[i], face[i + 1]]);
+            }
+        }
+        out
+    }
 }
 
 fn index(t: &str, len: usize) -> Option<u32> {
@@ -123,6 +134,7 @@ mod tests {
         assert_eq!(o.faces[0], (vec![0, 1, 2, 3], 0));
         assert_eq!(o.face_uvs[0], vec![0, 1, 2, 3]);
         assert_eq!(o.faces[1], (vec![3, 2, 1], 1));
+        assert_eq!(o.triangles(), vec![[0, 1, 2], [0, 2, 3], [3, 2, 1]]);
         assert!(o.face_uvs[1].is_empty());
         assert!(super::parse("v 0 0 0\nf 1 1 9\n", "x").is_err());
         assert!(super::parse("v 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nf 1/1 2 3\n", "x").is_err());

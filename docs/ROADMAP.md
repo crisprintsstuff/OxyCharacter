@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-07 (M4) · **Version:** 0.1.0 (unreleased)
+**Last updated:** 2026-11-09 · **Version:** 0.1.0 (unreleased)
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -52,6 +52,9 @@ Cargo workspace, CI (fmt, clippy, test), clean-room policy, `oxy-mesh`
 - Skinned glTF: joint hierarchy, IBMs, 4 weights/vertex, T-pose bind option,
   sculpts as blendshapes, skinned accessories.
 - Verified: Khronos validator 0 errors / 0 warnings; three.js deforms correctly.
+  Blender 4.0.2 and Godot 4.7.2 (headless, `tools/check-gltf-engines`) import
+  static, rigged rest, T-pose, blendshape, textured and accessory files and
+  deform them. Unity and Unreal have not been run.
 
 ### M3 — Projects & UX ✅
 - `.oxyc` JSON projects: changed sliders only, skin, pose, export options,
@@ -118,11 +121,14 @@ Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
 
 ## Known gaps (cross-cutting)
 
-- **Engine imports not tried:** Blender, Godot, Unity, Unreal (M2 exports
-  were validated with the Khronos validator and three.js only).
+- **Unity and Unreal imports not tried.** Blender 4.0.2 and Godot 4.7.2 were
+  checked headless (see above). Nothing has been opened in Unity or Unreal.
 - **Never run on a real GPU, Windows or macOS:** everything so far ran under
-  Linux software rendering (lavapipe).
-- **Native file dialogs:** paths are typed into a dialog with recent files.
+  Linux software rendering (lavapipe). The native file dialog was not shown
+  on a desktop portal for the same reason; the typed-path fallback was.
+- **Native file dialogs need a desktop session.** Headless runs and Linux
+  without `org.freedesktop.portal.FileChooser` keep the typed-path dialog
+  (recent projects included). `OXY_FILE_DIALOG=native` forces the system dialog.
 - **No teeth, tongue, eyelashes or brows** yet (M6); eyes are simple spheres.
 - **Accessories don't refit** to body changes (M5); weight transfer is
   nearest-vertex.

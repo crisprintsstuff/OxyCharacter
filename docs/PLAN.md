@@ -177,8 +177,9 @@ so the skeleton refits exactly to every morph (sculpts derive aux motion from
 nearby body vertices); bone orientation (+Y along the bone, roll from roll
 planes); pose presets with CPU skinning and a skeleton overlay; skinned glTF
 with T-pose bind option, blendshapes for sculpted morphs and skinned
-accessories. Validated with the Khronos glTF validator and three.js.
-Not yet: checks in Blender/Godot/Unity/Unreal, a reduced game skeleton
+accessories. Validated with the Khronos glTF validator, three.js, and
+headless imports in Blender 4.0.2 and Godot 4.7.2 (`tools/check-gltf-engines`).
+Not yet: Unity/Unreal, a reduced game skeleton
 option, corrective shapes, dual-quaternion skinning, interactive posing.
 
 Original plan:
@@ -194,8 +195,10 @@ fingerprint, version + migration hook, atomic writes, reconcile with warnings);
 snapshot undo/redo (one step per finished edit, 200 steps); unsaved-changes
 tracking, prompts on New/Open/close, recent files, autosave every 60 s with
 crash recovery; keyboard shortcuts. JSON instead of RON: no extra dependency,
-equally diff-friendly.
-Not yet: native file dialogs, preset saving, slider favourites.
+equally diff-friendly. Open, Save as, export and `.oxb` import use the system
+file dialog when a desktop portal is available, and a typed path otherwise
+([ADR 0007](adr/0007-native-file-dialogs.md)).
+Not yet: preset saving, slider favourites.
 
 Original plan:
 - `oxy-project`: save/load parameters (RON), asset references by stable IDs, schema versioning + migrations.

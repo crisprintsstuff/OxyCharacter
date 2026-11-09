@@ -34,5 +34,8 @@ Process:
 | 2026-11-07 | three.js r170 (npm) | MIT | Independent check of exported skins | Test tool only, not shipped |
 | 2026-11-07 | Bevy 0.20, bevy_egui 0.43, egui 0.36 sources and bundled examples | MIT/Apache-2.0 | API usage | Read to learn APIs |
 | 2026-11-07 | MakeHuman `data/skins`, `data/eyes`, `data/litspheres` listings (same repo, CC0) | CC0 data | Checked for usable skin/eye assets | Only material settings, no skin textures; nothing imported. Skin and eyes are our own procedural designs ([ADR 0006](adr/0006-procedural-materials.md)) |
+| 2026-11-09 | rfd 0.18 (github.com/PolyMeilex/rfd) | MIT | Native open/save dialogs | Dependency, XDG portal backend only (no GTK). Typed-path dialog remains when the portal is absent ([ADR 0007](adr/0007-native-file-dialogs.md)) |
+| 2026-11-09 | Blender 4.0.2 glTF importer | GPL-2.0-or-later program, used only as an external process | Check exported skins, shape keys, materials | `tools/check-gltf-engines/blender_check.py` drives `blender --background`. No Blender source copied or linked |
+| 2026-11-09 | Godot 4.7.2 glTF importer | MIT engine, test tool only | Same checks, headless | `tools/check-gltf-engines/godot/check.gd` drives the official binary. No Godot source copied |
 
 Add new rows at the bottom.
