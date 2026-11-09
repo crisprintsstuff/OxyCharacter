@@ -6,6 +6,8 @@
 use std::io::Write;
 
 use glam::{Mat4, Vec3};
+use oxy_fit::without_triangles;
+use oxy_material::hair::strand_textures;
 use oxy_morph::Params;
 use oxy_rig::{pose, skin_with, transfer_nearest, Influence};
 
@@ -66,6 +68,19 @@ pub struct ExportStats {
     pub textures: usize,
 }
 
+/// A garment or hair mesh already fitted to the exported body (rest pose).
+pub struct WornMesh {
+    pub name: String,
+    pub positions: Vec<Vec3>,
+    pub indices: Vec<u32>,
+    pub uvs: Vec<[f32; 2]>,
+    pub skin: Option<Vec<Influence>>,
+    /// Linear RGBA. Hair with textures uses this as the strand colour.
+    pub base_color: [f32; 4],
+    pub hair: bool,
+    pub double_sided: bool,
+}
+
 /// Clay color for unpainted accessories (linear).
 pub const ACCESSORY_CLAY: [f32; 3] = [0.42, 0.44, 0.48];
 
@@ -97,21 +112,35 @@ struct Part {
     skin: Option<Vec<Influence>>,
     morphs: Vec<(String, Vec<Vec3>, f32)>,
     textures: MeshTextures,
+    alpha_mask: bool,
+    double_sided: bool,
+    anisotropy: Option<f32>,
 }
 
 fn normals_of(positions: &[Vec3], indices: &[u32]) -> Vec<Vec3> {
-    oxy_mesh::Mesh::new(positions.to_vec(), indices.to_vec()).map_or_else(
+    let mut n = oxy_mesh::Mesh::new(positions.to_vec(), indices.to_vec()).map_or_else(
         |_| vec![Vec3::Y; positions.len()],
         |m| m.compute_normals(positions),
-    )
+    );
+    // A vertex on only degenerate faces gets a zero normal, which the glTF
+    // validator rejects. A unit fallback keeps the file valid.
+    for v in &mut n {
+        if v.length_squared() < 1e-8 {
+            *v = Vec3::Y;
+        }
+    }
+    n
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn character_glb(
     asset: &CharacterAsset,
     params: &Params,
     accessories: &[Accessory],
     material: &MaterialParams,
     opts: &ExportOptions,
+    worn: &[WornMesh],
+    hidden_body: &[u32],
     w: impl Write,
 ) -> Result<ExportStats> {
     // With blendshapes, sculpted morphs are left out of the base shape and
@@ -190,7 +219,10 @@ pub fn character_glb(
         name: "body".into(),
         normals: gather(asset.mesh.base.compute_normals(&ev.body)),
         positions: gather(ev.body.clone()),
-        indices: render.map_or_else(|| asset.mesh.base.indices.clone(), |r| r.indices.clone()),
+        indices: without_triangles(
+            &render.map_or_else(|| asset.mesh.base.indices.clone(), |r| r.indices.clone()),
+            hidden_body,
+        ),
         uvs: render.map(|r| r.uvs.clone()),
         colors: None,
         base_color: if textured_body {
@@ -201,6 +233,9 @@ pub fn character_glb(
         skin: rig.map(|r| render.map_or_else(|| r.skin.clone(), |rm| rm.gather(&r.skin))),
         morphs: body_morphs,
         textures: body_tex,
+        alpha_mask: false,
+        double_sided: false,
+        anisotropy: None,
     };
     let mut parts = vec![body];
 
@@ -230,6 +265,9 @@ pub fn character_glb(
                 skin,
                 morphs: vec![],
                 textures: eye_tex,
+                alpha_mask: false,
+                double_sided: false,
+                anisotropy: None,
             });
         }
     }
@@ -251,6 +289,56 @@ pub fn character_glb(
             skin: rig.map(|r| transfer_nearest(&ev.body, &r.skin, &a.positions)),
             morphs: vec![],
             textures: MeshTextures::default(),
+            alpha_mask: false,
+            double_sided: true,
+            anisotropy: None,
+        });
+    }
+
+    for wmesh in worn {
+        let mut textures = MeshTextures::default();
+        let mut base_color = [
+            wmesh.base_color[0],
+            wmesh.base_color[1],
+            wmesh.base_color[2],
+        ];
+        let mut alpha_mask = false;
+        let mut anisotropy = None;
+        if wmesh.hair && opts.textures {
+            let maps = strand_textures(
+                [
+                    wmesh.base_color[0],
+                    wmesh.base_color[1],
+                    wmesh.base_color[2],
+                ],
+                256,
+            );
+            let albedo = pngs.len();
+            pngs.push((format!("{}_albedo", wmesh.name), png_bytes(&maps.albedo)?));
+            let normal = pngs.len();
+            pngs.push((format!("{}_normal", wmesh.name), png_bytes(&maps.normal)?));
+            textures.base_color = Some(albedo);
+            textures.normal = Some(normal);
+            textures.roughness = Some(0.45);
+            base_color = [1.0; 3];
+            alpha_mask = true;
+            anisotropy = Some(0.85);
+        }
+        let uvs = (wmesh.uvs.len() == wmesh.positions.len()).then(|| wmesh.uvs.clone());
+        parts.push(Part {
+            name: wmesh.name.clone(),
+            normals: normals_of(&wmesh.positions, &wmesh.indices),
+            positions: wmesh.positions.clone(),
+            indices: wmesh.indices.clone(),
+            uvs,
+            colors: None,
+            base_color,
+            skin: wmesh.skin.clone().filter(|_| rig.is_some()),
+            morphs: vec![],
+            textures,
+            alpha_mask,
+            double_sided: wmesh.double_sided,
+            anisotropy,
         });
     }
 
@@ -317,6 +405,9 @@ pub fn character_glb(
                 .collect(),
             uvs: p.uvs.as_deref(),
             textures: p.textures,
+            alpha_cutoff: p.alpha_mask.then_some(0.5),
+            double_sided: p.double_sided,
+            anisotropy: p.anisotropy,
         })
         .collect();
     let images: Vec<ExportImage> = pngs

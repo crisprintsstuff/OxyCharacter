@@ -34,5 +34,7 @@ Process:
 | 2026-11-07 | three.js r170 (npm) | MIT | Independent check of exported skins | Test tool only, not shipped |
 | 2026-11-07 | Bevy 0.20, bevy_egui 0.43, egui 0.36 sources and bundled examples | MIT/Apache-2.0 | API usage | Read to learn APIs |
 | 2026-11-07 | MakeHuman `data/skins`, `data/eyes`, `data/litspheres` listings (same repo, CC0) | CC0 data | Checked for usable skin/eye assets | Only material settings, no skin textures; nothing imported. Skin and eyes are our own procedural designs ([ADR 0006](adr/0006-procedural-materials.md)) |
+| 2026-11-09 | Christer Ericson, *Real-Time Collision Detection* (2005), §5.1.5 | Published book | Closest point on a triangle | Algorithm reimplemented from the standard construction; the book was not fetched or copied |
+| 2026-11-09 | Khronos `KHR_materials_anisotropy` (glTF 2.0 extension) | Open standard | Hair-card highlight direction in exports | Extension declared as used, not required; strand texture and cards are original ([ADR 0007](adr/0007-clothing-and-hair.md)) |
 
 Add new rows at the bottom.

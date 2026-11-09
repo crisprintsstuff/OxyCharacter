@@ -206,10 +206,15 @@ Original plan:
 Original plan:
 - `oxy-material`: layer stack + GPU compositing; skin tone, makeup, tattoo decals with UV projection; eye color/iris; export baking.
 
-### M5 — Clothing & hair (weeks 12–16)
+### M5 — Clothing & hair ✅ *implemented* (see ROADMAP and [ADR 0007](adr/0007-clothing-and-hair.md))
+
+Original plan:
 - `oxy-fit`: bind/fit/smooth/collide; skin-weight transfer; hide-under masks.
 - Content browser with thumbnails; asset package format (our own: a folder/zip with `manifest.ron` + glTF).
 - Hair as card meshes with an anisotropic shader.
+
+Shipped as a folder + `manifest.json` + OBJ (no zip, no glTF import), a
+wardrobe tab without mesh thumbnails, and anisotropy on export only.
 
 ### M6 — Face & expressions (weeks 17–20)
 - `oxy-expr`: expression set, deformation transport, expression preview sliders, viseme set.
@@ -264,7 +269,7 @@ OxyCharacter/
 │   ├── oxy-io/             # OBJ/glTF/FBX                          (M1)
 │   ├── oxy-project/        # save format, undo                     (M3)
 │   ├── oxy-material/       # layered materials                     (M4)
-│   ├── oxy-fit/            # clothing/hair conforming              (M5)
+│   ├── oxy-fit/            # clothing/hair conforming              (M5) ✅
 │   ├── oxy-expr/           # expressions                           (M6)
 │   ├── oxy-cli/            # headless batch tools                  (M1+)
 │   └── oxy-app/            # Bevy + egui editor                    (M1)

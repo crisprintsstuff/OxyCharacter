@@ -15,6 +15,7 @@ pub mod history;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use oxy_fit::{builtin_name, FitSettings, GarmentBind, ItemKind};
 use oxy_io::export::ExportOptions;
 use oxy_io::oxybrush::{Accessory, CustomMorph};
 use oxy_io::CharacterAsset;
@@ -71,6 +72,44 @@ pub struct AccessoryEntry {
     #[serde(flatten)]
     pub mesh: Accessory,
     pub visible: bool,
+    /// How this accessory follows the body. Missing in older projects: rigid.
+    #[serde(default)]
+    pub settings: FitSettings,
+    /// Present when `settings.method` is not rigid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<GarmentBind>,
+}
+
+/// A mesh embedded in a project (a garment that is not a built-in).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddedMesh {
+    pub positions: Vec<glam::Vec3>,
+    pub triangles: Vec<[u32; 3]>,
+    #[serde(default)]
+    pub uvs: Vec<[f32; 2]>,
+}
+
+/// One worn garment or hair item.
+///
+/// Built-ins store only their id and settings; the mesh is regenerated from
+/// the base body. Other items embed the mesh and the binding it was authored
+/// with. `hidden_tris` is the body triangles this item covered at save time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WardrobeEntry {
+    pub id: String,
+    pub name: String,
+    pub kind: ItemKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh: Option<EmbeddedMesh>,
+    pub settings: FitSettings,
+    /// Linear RGB.
+    pub color: [f32; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<GarmentBind>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_tris: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +131,9 @@ pub struct Project {
     pub material: oxy_io::material::MaterialParams,
     pub custom_morphs: Vec<CustomMorph>,
     pub accessories: Vec<AccessoryEntry>,
+    /// Worn garments and hair (added without a version bump: optional).
+    #[serde(default)]
+    pub wardrobe: Vec<WardrobeEntry>,
 }
 
 impl Project {
@@ -108,6 +150,7 @@ impl Project {
             material: Default::default(),
             custom_morphs: Vec::new(),
             accessories: Vec::new(),
+            wardrobe: Vec::new(),
         }
     }
 
@@ -207,6 +250,22 @@ impl Project {
                 before - self.accessories.len()
             ));
         }
+        let before = self.wardrobe.len();
+        self.wardrobe.retain(|w| match &w.builtin {
+            Some(id) => builtin_name(id).is_some(),
+            None => w.mesh.as_ref().is_some_and(|m| {
+                let n = m.positions.len();
+                !m.triangles.is_empty()
+                    && m.triangles.iter().flatten().all(|&i| (i as usize) < n)
+                    && (m.uvs.is_empty() || m.uvs.len() == n)
+            }),
+        });
+        if self.wardrobe.len() != before {
+            warnings.push(format!(
+                "{} clothing item(s) could not be loaded and were skipped.",
+                before - self.wardrobe.len()
+            ));
+        }
         self.base = here;
         warnings
     }
@@ -288,6 +347,19 @@ mod tests {
                 color: vec![],
             },
             visible: true,
+            settings: Default::default(),
+            binding: None,
+        });
+        pr.wardrobe.push(WardrobeEntry {
+            id: "tee".into(),
+            name: "T-shirt".into(),
+            kind: oxy_fit::ItemKind::Garment,
+            builtin: Some("tee".into()),
+            mesh: None,
+            settings: oxy_fit::FitSettings::surface(2),
+            color: [0.2, 0.3, 0.5],
+            binding: None,
+            hidden_tris: vec![0, 2, 5],
         });
         pr
     }
@@ -313,9 +385,36 @@ mod tests {
     fn projects_without_material_still_open() {
         let a = asset();
         let mut v: serde_json::Value = serde_json::from_slice(&sample(&a).to_json()).unwrap();
-        v.as_object_mut().unwrap().remove("material");
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("material");
+        obj.remove("wardrobe");
         let p = Project::from_json(v.to_string().as_bytes()).unwrap();
         assert_eq!(p.material, Default::default());
+        assert!(p.wardrobe.is_empty());
+    }
+
+    #[test]
+    fn wardrobe_round_trips_and_unknown_items_are_dropped() {
+        let a = asset();
+        let pr = sample(&a);
+        assert_eq!(pr.wardrobe[0].hidden_tris, vec![0, 2, 5]);
+        let back = Project::from_json(&pr.to_json()).unwrap();
+        assert_eq!(back.wardrobe, pr.wardrobe);
+        let mut pr = sample(&a);
+        pr.wardrobe.push(WardrobeEntry {
+            id: "nope".into(),
+            name: "Nope".into(),
+            kind: oxy_fit::ItemKind::Garment,
+            builtin: Some("not-a-garment".into()),
+            mesh: None,
+            settings: Default::default(),
+            color: [0.0; 3],
+            binding: None,
+            hidden_tris: vec![],
+        });
+        let w = pr.reconcile(&a);
+        assert!(w.iter().any(|m| m.contains("clothing")));
+        assert_eq!(pr.wardrobe.len(), 1);
     }
 
     #[test]

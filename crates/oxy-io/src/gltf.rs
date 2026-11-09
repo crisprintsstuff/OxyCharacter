@@ -34,6 +34,12 @@ pub struct ExportMesh<'a> {
     pub uvs: Option<&'a [[f32; 2]]>,
     /// Textures by index into the scene's images.
     pub textures: MeshTextures,
+    /// Alpha-test cutoff. `Some` sets `alphaMode` to `MASK`.
+    pub alpha_cutoff: Option<f32>,
+    pub double_sided: bool,
+    /// `KHR_materials_anisotropy` strength. Rotation is π/2 so the highlight
+    /// follows the card's v axis (the strand direction).
+    pub anisotropy: Option<f32>,
 }
 
 /// Texture slots of a mesh's material (indices into the image list).
@@ -146,6 +152,7 @@ pub fn write_glb_scene(
         accessors: Vec::new(),
     };
     let (mut gl_meshes, mut nodes, mut materials) = (vec![], vec![], vec![]);
+    let mut anisotropy = false;
     let joint_base = meshes.len();
 
     for (i, mesh) in meshes.iter().enumerate() {
@@ -253,6 +260,22 @@ pub fn write_glb_scene(
         if let Some(nt) = tex(t.normal) {
             material["normalTexture"] = nt;
         }
+        if mesh.double_sided {
+            material["doubleSided"] = json!(true);
+        }
+        if let Some(cut) = mesh.alpha_cutoff {
+            material["alphaMode"] = json!("MASK");
+            material["alphaCutoff"] = json!(cut);
+        }
+        if let Some(strength) = mesh.anisotropy {
+            anisotropy = true;
+            material["extensions"] = json!({
+                "KHR_materials_anisotropy": {
+                    "anisotropyStrength": strength,
+                    "anisotropyRotation": std::f32::consts::FRAC_PI_2
+                }
+            });
+        }
         materials.push(material);
         let mut node = json!({ "name": mesh.name, "mesh": i });
         if skinned {
@@ -325,6 +348,9 @@ pub fn write_glb_scene(
     });
     if !skins.is_empty() {
         doc["skins"] = json!(skins);
+    }
+    if anisotropy {
+        doc["extensionsUsed"] = json!(["KHR_materials_anisotropy"]);
     }
     if !gl_images.is_empty() {
         doc["textures"] = json!((0..gl_images.len())

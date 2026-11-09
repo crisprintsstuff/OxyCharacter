@@ -38,7 +38,7 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 
 ## Editor
 
-- **Content** (left): body presets with procedural silhouette cards, skin-tone swatches + custom color.
+- **Content** (left): body presets, skin-tone swatches, a wardrobe (clothing and hair) and accessories.
 - **Viewport** (center): orbit (LMB), pan (RMB/MMB), zoom (wheel); stats overlay.
 - **Morph** (right): search, category tree with modified counts, sliders with value
   readout, reset and range-end labels. Hovering or dragging a slider tints the
@@ -58,6 +58,38 @@ procedural iris (presets or any colour). No image files are needed; exports
 embed the baked textures (1024–4096 px) and pass the glTF validator.
 
 ![Material tab with procedural skin and blue eyes](docs/images/material-head.png)
+
+## Clothing and hair
+
+The **Wardrobe** tab puts clothes and hair on the character. A T-shirt,
+trousers, a skirt and hair are generated from the body (nothing is downloaded
+for them). They **refit when the body changes** and **skin with the skeleton**
+when you pose.
+
+- **Fit** keeps a gap off the skin. **Loose** (the skirt) follows the body's
+  overall shape instead of hugging the legs. **Hold** does not refit.
+- **Tightness** pulls an item in or lets it stand off. The middle is the
+  shape it was made at.
+- **Hide body underneath** drops body triangles that sit fully under the
+  item. A shirt on top of trousers hides the waistband where they overlap.
+- Hair is a set of cards with a strand texture. Pick a colour from the
+  swatches.
+- **Load package** reads a folder of `manifest.json` plus OBJ meshes.
+  Pieces that come back from OxyBrush are fitted when they sit on the body,
+  and left as props when they don't.
+
+Worn items are saved in the project and undo with everything else. Export
+includes them as skinned meshes; hair keeps its strand texture.
+
+```sh
+oxycharacter --wardrobe-tab --wear tee,pants,hair --screenshot dressed.png --frames 40
+oxy wardrobe assets/generated/makehuman.oxyb
+oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpose
+```
+
+![T-shirt, trousers and hair](docs/images/wardrobe-full.png)
+
+![The same clothes in the wave pose](docs/images/wardrobe-pose.png)
 
 ## Projects, undo and autosave
 
@@ -94,7 +126,8 @@ back from OxyBrush.
   Wave, Stride*) with linear-blend skinning, and *Show skeleton*.
 - **Export (.glb)**: skeleton + skin weights (4 per vertex), bind pose
   *Rest* or *T-pose*, sculpted morphs baked or as named **blendshapes**,
-  accessories skinned by nearest-vertex weight transfer.
+  clothing and hair fitted to the body, accessories skinned with the
+  skeleton (fitted pieces follow the body; props use the nearest vertex).
 
 ![Wave pose with the skeleton overlay](docs/images/pose-wave-skeleton.png)
 
@@ -119,7 +152,9 @@ through its native `.oxb` project files: no export/import dance, no shared code.
 3. OxyCharacter notices the save and shows **Import from OxyBrush**:
    - the reshaped **body becomes a morph slider** under *Custom › Sculpted*
      (saved to `user/morphs/` and reloaded on start; 🗑 deletes it);
-   - **new pieces become accessories** (left panel → *Accessories*), exported with the body.
+   - **new pieces become accessories** (left panel → *Accessories*). A piece
+     that sits on the body is fitted to later shape changes; one held away
+     only follows the skeleton. Both export with the body.
 
 You can also import any `.oxb` with **Import .oxb** or by dropping it on the window.
 
@@ -155,7 +190,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | M2 rigged & exportable (skeleton refit, poses, skinned glTF, T-pose bind, blendshapes) | ✅ |
 | M3 project files, undo/redo, autosave & recovery | ✅ |
 | M4 materials (UVs, procedural skin, eyes, textured glTF) | ✅ |
-| M5 clothing & hair | next |
+| M5 clothing & hair (fit, hide-under, hair cards, export) | ✅ |
 
 | Crate | What it does |
 |---|---|
@@ -165,6 +200,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
 | `oxy-material` | UV rasterizer, 3D noise, layer stack, skin regions from bone weights, texture encoding, eyeballs + iris |
 | `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |
+| `oxy-fit` | Clothing and hair: bind, refit, loose radial-basis fit, weight transfer, hide-under |
 | `oxy-cli` | `oxy` command-line tool |
 | `oxy-app` | Bevy + egui editor (`oxycharacter`) |
 

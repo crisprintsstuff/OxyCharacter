@@ -6,7 +6,7 @@ use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
-    render::render_resource::BlendState,
+    render::render_resource::{BlendState, Extent3d, TextureDimension, TextureFormat},
     window::PrimaryWindow,
 };
 use bevy_egui::PrimaryEguiContext;
@@ -231,11 +231,29 @@ pub fn update_character(
             Mesh::ATTRIBUTE_NORMAL,
             normals.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
         );
-        ed.rest_body = ev.body;
-        // Accessories follow the pose.
-        if !ed.accessories.is_empty() {
-            ed.accessories_dirty = true;
+        let body_now = ev.body.clone();
+        let refit = !ed.worn.is_empty()
+            || ed
+                .accessories
+                .iter()
+                .any(|a| a.visible && a.settings.method != oxy_fit::FitMethod::Rigid);
+        if refit {
+            ed.refit_clothing(&body_now);
+        } else {
+            ed.body_hidden.clear();
+            if !ed.accessories.is_empty() {
+                ed.accessories_dirty = true;
+            }
         }
+        ed.rest_body = body_now;
+        let full_index = match &ed.asset.render {
+            Some(r) => r.indices.clone(),
+            None => ed.asset.mesh.base.indices.clone(),
+        };
+        mesh.insert_indices(Indices::U32(oxy_fit::without_triangles(
+            &full_index,
+            &ed.body_hidden,
+        )));
         ed.dirty = false;
     }
 
@@ -360,7 +378,10 @@ pub fn sync_accessories(
         let Ok(m) = oxy_mesh::Mesh::new(item.acc.positions.clone(), flat.clone()) else {
             continue;
         };
-        let mut positions = item.acc.positions.clone();
+        let mut positions = item
+            .fitted
+            .clone()
+            .unwrap_or_else(|| item.acc.positions.clone());
         let mut normals = m.compute_normals(&positions);
         // Follow the current pose using weights transferred from the body.
         if let (Some(rig), false) = (&ed.asset.rig, ed.skin_mats.is_empty()) {
@@ -408,6 +429,112 @@ pub fn sync_accessories(
                 cull_mode: None,
                 ..default()
             })),
+        ));
+    }
+}
+
+#[derive(Component)]
+pub struct ClothingMesh;
+
+fn rgba_image(img: &oxy_material::Image, srgb: bool) -> Image {
+    Image::new(
+        Extent3d {
+            width: img.width,
+            height: img.height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        img.rgba.clone(),
+        if srgb {
+            TextureFormat::Rgba8UnormSrgb
+        } else {
+            TextureFormat::Rgba8Unorm
+        },
+        RenderAssetUsages::default(),
+    )
+}
+
+/// Re-spawn fitted garments and hair after a refit or a wardrobe edit.
+pub fn sync_clothing(
+    mut commands: Commands,
+    mut editor: ResMut<Editor>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    existing: Query<Entity, With<ClothingMesh>>,
+) {
+    if !editor.clothing_dirty {
+        return;
+    }
+    editor.clothing_dirty = false;
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    let ed = &mut *editor;
+    for item in ed.worn.iter().filter(|w| w.settings.visible) {
+        let positions = if item.fitted.len() == item.mesh.positions.len() {
+            item.fitted.clone()
+        } else {
+            item.mesh.positions.clone()
+        };
+        let indices = oxy_fit::without_triangles(&item.mesh.flat_indices(), &item.hidden_self);
+        let Ok(m) = oxy_mesh::Mesh::new(positions.clone(), indices.clone()) else {
+            continue;
+        };
+        let mut normals = m.compute_normals(&positions);
+        let mut posed = positions;
+        if !item.skin.is_empty() && !ed.skin_mats.is_empty() {
+            (posed, normals) = oxy_rig::skin_with(&item.skin, &posed, &normals, &ed.skin_mats);
+        }
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        let hair = item.kind == oxy_fit::ItemKind::Hair;
+        if hair && item.mesh.uvs.len() == posed.len() {
+            let t = oxy_mesh::compute_tangents(&posed, &normals, &item.mesh.uvs, &indices);
+            mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, t);
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, item.mesh.uvs.clone());
+        } else if item.mesh.uvs.len() == posed.len() {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, item.mesh.uvs.clone());
+        }
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            posed.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+        );
+        mesh.insert_attribute(
+            Mesh::ATTRIBUTE_NORMAL,
+            normals.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+        );
+        mesh.insert_indices(Indices::U32(indices));
+        let material = if hair {
+            let maps = oxy_material::hair::strand_textures(item.color, 256);
+            let albedo = images.add(rgba_image(&maps.albedo, true));
+            let normal = images.add(rgba_image(&maps.normal, false));
+            materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                base_color_texture: Some(albedo),
+                normal_map_texture: Some(normal),
+                alpha_mode: AlphaMode::Mask(0.5),
+                double_sided: true,
+                cull_mode: None,
+                perceptual_roughness: 0.45,
+                ..default()
+            })
+        } else {
+            let [r, g, b] = item.color;
+            materials.add(StandardMaterial {
+                base_color: Color::linear_rgb(r, g, b),
+                perceptual_roughness: 0.72,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            })
+        };
+        commands.spawn((
+            ClothingMesh,
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(material),
         ));
     }
 }

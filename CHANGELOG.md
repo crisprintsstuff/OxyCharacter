@@ -6,6 +6,16 @@ development branch. The project has not made a release yet.
 ## [Unreleased] — 0.1.0
 
 ### Added
+- **Clothing and hair (M5):** `oxy-fit` binds garments to the body and refits
+  them when it changes (surface fit, loose radial-basis fit, push-out,
+  tightness); smoothed skin-weight transfer; hide-under masks, including a
+  higher layer hiding a lower one. Wardrobe tab with original T-shirt,
+  trousers, skirt and hair cards (procedural strand texture). Wardrobe
+  packages (`manifest.json` + OBJ). OxyBrush pieces that sit on the body are
+  fitted. Projects store items, fit settings and hidden triangles; glTF
+  export includes them skinned, with hair alpha and
+  `KHR_materials_anisotropy`. `oxy wardrobe`, `oxy export --wear` /
+  `--wardrobe`.
 - **Materials (M4):** UV render mesh (bundle v3); `oxy-material` crate with a
   procedural layer stack baked to albedo/normal/roughness textures; skin
   controls (tone, variation, detail, roughness, freckles, blush, eye shadow,

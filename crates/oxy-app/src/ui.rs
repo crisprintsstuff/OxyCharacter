@@ -23,6 +23,8 @@ pub struct UiState {
     pub styled: bool,
     pub export_requested: bool,
     pub right_mode: RightMode,
+    /// Folder path typed into the wardrobe tab (not the shared file dialog).
+    pub package_path: String,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
@@ -39,6 +41,7 @@ pub enum LeftTab {
     Presets,
     Skin,
     Accessories,
+    Wardrobe,
 }
 
 fn style(ctx: &egui::Context) {
@@ -286,10 +289,20 @@ pub fn ui_system(
         .show(&mut root, |ui| {
             panel_header(ui, "Content");
             ui.add_space(4.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.add_space(6.0);
-                ui.selectable_value(&mut state.left_tab, LeftTab::Presets, "Body Presets");
+                ui.selectable_value(&mut state.left_tab, LeftTab::Presets, "Presets");
                 ui.selectable_value(&mut state.left_tab, LeftTab::Skin, "Skin");
+                let worn = ed.worn.iter().filter(|w| w.settings.visible).count();
+                ui.selectable_value(
+                    &mut state.left_tab,
+                    LeftTab::Wardrobe,
+                    if worn > 0 {
+                        format!("Wardrobe ({worn})")
+                    } else {
+                        "Wardrobe".into()
+                    },
+                );
                 let n = ed.accessories.len();
                 ui.selectable_value(
                     &mut state.left_tab,
@@ -309,6 +322,7 @@ pub fn ui_system(
                     match state.left_tab {
                         LeftTab::Presets => presets_tab(ui, ed, &mut state.preset_filter),
                         LeftTab::Skin => skin_tab(ui, ed),
+                        LeftTab::Wardrobe => wardrobe_tab(ui, ed, &mut state.package_path),
                         LeftTab::Accessories => accessories_tab(ui, ed),
                     }
                 });
@@ -342,12 +356,16 @@ pub fn ui_system(
         .frame(Frame::NONE)
         .show(&mut root, |ui| {
             let r = ui.max_rect();
+            let body_tris = ed.asset.mesh.base.indices.len() / 3;
+            let shown = body_tris.saturating_sub(ed.body_hidden.len());
+            let clothes = ed.worn.iter().filter(|w| w.settings.visible).count();
             let text = format!(
-            "Vertices: {}\nTriangles: {}\nActive morph targets: {}\nHeight: {:.2} m\nFPS: {:.0}",
+            "Vertices: {}\nTriangles: {shown}{}\nActive morph targets: {}\nHeight: {:.2} m\n{}\nFPS: {:.0}",
             ed.asset.mesh.base.vertex_count(),
-            ed.asset.mesh.base.indices.len() / 3,
+            if shown == body_tris { String::new() } else { format!(" / {body_tris}") },
             ed.active_targets,
             height.0,
+            if clothes == 0 { "Clothing: none".into() } else { format!("Clothing: {clothes}") },
             fps
         );
             ui.painter().text(
@@ -733,13 +751,223 @@ fn slider_row(ui: &mut egui::Ui, ed: &mut Editor, p: &oxy_morph::ParamDef, show_
     }
 }
 
+fn wardrobe_tab(ui: &mut egui::Ui, ed: &mut Editor, package_path: &mut String) {
+    const SWATCHES: &[(&str, [f32; 3])] = &[
+        ("Navy", [0.16, 0.28, 0.48]),
+        ("Ink", [0.10, 0.11, 0.14]),
+        ("Sand", [0.62, 0.52, 0.40]),
+        ("Wine", [0.38, 0.12, 0.16]),
+        ("Brown", [0.12, 0.07, 0.045]),
+        ("White", [0.78, 0.78, 0.80]),
+    ];
+    Frame::NONE
+        .inner_margin(Margin::symmetric(8, 2))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("Garments and hair fit the current body and follow poses.")
+                    .size(11.5)
+                    .color(TEXT_DIM),
+            );
+            ui.add_space(6.0);
+            let items = ed.library_items();
+            if items.is_empty() {
+                ui.label(
+                    RichText::new("This body is too small to generate clothing.").color(TEXT_DIM),
+                );
+            }
+            for (id, name, kind, on) in items {
+                Frame::NONE
+                    .fill(BG)
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let mut wear = on;
+                            if ui
+                                .checkbox(&mut wear, "")
+                                .on_hover_text("Wear / remove")
+                                .changed()
+                            {
+                                ed.toggle_builtin(&id);
+                            }
+                            ui.label(RichText::new(&name).strong());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let tag = if kind == oxy_fit::ItemKind::Hair {
+                                        "hair"
+                                    } else {
+                                        "cloth"
+                                    };
+                                    ui.label(RichText::new(tag).size(11.0).color(TEXT_DIM));
+                                },
+                            );
+                        });
+                        let wearing = ed
+                            .worn
+                            .iter()
+                            .any(|w| w.builtin.as_deref() == Some(id.as_str()));
+                        if wearing {
+                            fit_controls(ui, ed, &id);
+                            ui.add_space(2.0);
+                            ui.label(RichText::new("Colour").size(11.0).color(TEXT_DIM));
+                            ui.horizontal_wrapped(|ui| {
+                                for (label, rgb) in SWATCHES {
+                                    let on = ed
+                                        .worn
+                                        .iter()
+                                        .find(|w| w.builtin.as_deref() == Some(id.as_str()))
+                                        .is_some_and(|w| {
+                                            w.color
+                                                .iter()
+                                                .zip(*rgb)
+                                                .all(|(a, b)| (a - b).abs() < 0.02)
+                                        });
+                                    let (r, g, b) = (
+                                        (rgb[0] * 255.0) as u8,
+                                        (rgb[1] * 255.0) as u8,
+                                        (rgb[2] * 255.0) as u8,
+                                    );
+                                    if ui
+                                        .add(
+                                            egui::Button::selectable(on, *label)
+                                                .fill(Color32::from_rgb(r, g, b)),
+                                        )
+                                        .clicked()
+                                    {
+                                        if let Some(w) = ed
+                                            .worn
+                                            .iter_mut()
+                                            .find(|w| w.builtin.as_deref() == Some(id.as_str()))
+                                        {
+                                            w.color = *rgb;
+                                            ed.dirty = true;
+                                            ed.clothing_dirty = true;
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    });
+                ui.add_space(4.0);
+            }
+            // Package items (not built-ins) sit under the library.
+            let custom: Vec<usize> = ed
+                .worn
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| w.builtin.is_none())
+                .map(|(i, _)| i)
+                .collect();
+            let mut remove_custom = None;
+            for i in custom {
+                let name = ed.worn[i].name.clone();
+                Frame::NONE
+                    .fill(BG)
+                    .corner_radius(CornerRadius::same(5))
+                    .inner_margin(Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&name).strong());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("🗑").clicked() {
+                                        remove_custom = Some(i);
+                                    }
+                                },
+                            );
+                        });
+                    });
+                ui.add_space(4.0);
+            }
+            if let Some(i) = remove_custom {
+                let name = ed.worn.remove(i).name;
+                ed.dirty = true;
+                ed.clothing_dirty = true;
+                ed.status = format!("Removed {name}");
+            }
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Load a wardrobe folder (manifest.json + OBJ)")
+                    .size(11.0)
+                    .color(TEXT_DIM),
+            );
+            ui.add(
+                egui::TextEdit::singleline(package_path)
+                    .hint_text("/path/to/wardrobe")
+                    .desired_width(ui.available_width()),
+            );
+            if ui
+                .add_enabled(
+                    !package_path.trim().is_empty(),
+                    egui::Button::new("Load package"),
+                )
+                .clicked()
+            {
+                let path = package_path.trim().to_string();
+                if let Err(e) = ed.load_wardrobe_dir(std::path::Path::new(&path)) {
+                    ed.status = format!("Could not load wardrobe: {e}");
+                }
+            }
+        });
+}
+
+fn fit_controls(ui: &mut egui::Ui, ed: &mut Editor, id: &str) {
+    let Some(i) = ed
+        .worn
+        .iter()
+        .position(|w| w.builtin.as_deref() == Some(id))
+    else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        for (label, method) in [
+            ("Fit", oxy_fit::FitMethod::Surface),
+            ("Loose", oxy_fit::FitMethod::Loose),
+            ("Hold", oxy_fit::FitMethod::Rigid),
+        ] {
+            let on = ed.worn[i].settings.method == method;
+            if ui
+                .add(egui::Button::selectable(on, label).min_size(Vec2::new(52.0, 22.0)))
+                .on_hover_text(match method {
+                    oxy_fit::FitMethod::Surface => "Follow the body surface",
+                    oxy_fit::FitMethod::Loose => {
+                        "Follow the body with a smooth field (skirts, coats)"
+                    }
+                    oxy_fit::FitMethod::Rigid => "Do not refit; only follow the skeleton",
+                })
+                .clicked()
+            {
+                ed.worn[i].settings.method = method;
+                ed.dirty = true;
+            }
+        }
+    });
+    let mut tight = ed.worn[i].settings.tightness;
+    if ui
+        .add(egui::Slider::new(&mut tight, 0.0..=1.0).text("Tightness"))
+        .changed()
+    {
+        ed.worn[i].settings.tightness = tight;
+        ed.dirty = true;
+    }
+    let mut hide = ed.worn[i].settings.hide_body;
+    if ui.checkbox(&mut hide, "Hide body underneath").changed() {
+        ed.worn[i].settings.hide_body = hide;
+        ed.dirty = true;
+    }
+}
+
 fn accessories_tab(ui: &mut egui::Ui, ed: &mut Editor) {
     Frame::NONE.inner_margin(Margin::symmetric(8, 2)).show(ui, |ui| {
         if ed.accessories.is_empty() {
             ui.label(RichText::new("No accessories yet.").color(TEXT_DIM));
             ui.add_space(4.0);
             ui.label(
-                RichText::new("Model props, hair or clothing in OxyBrush as new pieces, then save: they arrive here. They don't follow body changes yet (fitting comes in M5).")
+                RichText::new("Model props, hair or clothing in OxyBrush as new pieces, then save: they arrive here. A mesh that sits on the body is fitted to later shape changes; a mesh held away from the body only follows the skeleton.")
                     .color(TEXT_DIM)
                     .size(11.5),
             );
@@ -761,6 +989,37 @@ fn accessories_tab(ui: &mut egui::Ui, ed: &mut Editor) {
                     });
                 });
                 ui.label(RichText::new(format!("{} triangles{}", a.acc.triangles.len(), if a.acc.color.is_empty() { "" } else { " · painted" })).size(11.0).color(TEXT_DIM));
+                ui.horizontal(|ui| {
+                    for (label, method) in [
+                        ("Hold", oxy_fit::FitMethod::Rigid),
+                        ("Fit", oxy_fit::FitMethod::Surface),
+                        ("Loose", oxy_fit::FitMethod::Loose),
+                    ] {
+                        let on = a.settings.method == method;
+                        if ui.add(egui::Button::selectable(on, label).min_size(Vec2::new(48.0, 20.0))).clicked() && a.settings.method != method {
+                            a.settings.method = method;
+                            a.binding = None;
+                            a.influences = None;
+                            a.fitted = None;
+                            if method != oxy_fit::FitMethod::Rigid {
+                                a.settings.hide_body = true;
+                            }
+                            ed.dirty = true;
+                        }
+                    }
+                });
+                if a.settings.method != oxy_fit::FitMethod::Rigid {
+                    let mut tight = a.settings.tightness;
+                    if ui.add(egui::Slider::new(&mut tight, 0.0..=1.0).text("Tightness")).changed() {
+                        a.settings.tightness = tight;
+                        ed.dirty = true;
+                    }
+                    let mut hide = a.settings.hide_body;
+                    if ui.checkbox(&mut hide, "Hide body underneath").changed() {
+                        a.settings.hide_body = hide;
+                        ed.dirty = true;
+                    }
+                }
             });
             ui.add_space(4.0);
         }
@@ -933,10 +1192,15 @@ fn pose_panel(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
         ui.checkbox(&mut export.blendshapes, "Sculpted morphs as blendshapes")
             .on_hover_text("Off: sculpts are baked into the mesh. On: each sculpt becomes a named morph target at its current weight.");
         let accessories = ed.accessories.iter().filter(|a| a.visible).count();
+        let clothes = ed.worn.iter().filter(|w| w.settings.visible).count();
         ui.label(
-            RichText::new(format!("Includes the body{}.", if accessories > 0 { format!(" and {accessories} accessory mesh(es), skinned to the nearest body vertex") } else { String::new() }))
-                .size(11.0)
-                .color(TEXT_DIM),
+            RichText::new(format!(
+                "Includes the body{}{}.",
+                if clothes > 0 { format!(", {clothes} fitted garment(s)") } else { String::new() },
+                if accessories > 0 { format!(" and {accessories} accessory mesh(es)") } else { String::new() }
+            ))
+            .size(11.0)
+            .color(TEXT_DIM),
         );
         ui.add_space(6.0);
         if ui.add(egui::Button::new("⬇ Export .glb").min_size(Vec2::new(140.0, 28.0))).clicked() {

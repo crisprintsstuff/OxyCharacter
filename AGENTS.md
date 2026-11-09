@@ -165,7 +165,7 @@ behaviour), describe it as a spec and open it there. The end-to-end recipe
 - The editor's scripted options (`--set`, `--select`, `--hover`, `--head`,
   `--pose`, `--skeleton`, `--pose-tab`, `--material-tab`, `--iris`, `--import-oxb [--apply-import]`,
   `--send-oxybrush`, `--open`, `--save-as`, `--close`, `--screenshot`,
-  `--frames`) cover most UI states without clicking. Set `OXY_USER_DIR` to a
+  `--frames`, `--wardrobe-tab`, `--wear tee,pants,hair`) cover most UI states without clicking. Set `OXY_USER_DIR` to a
   scratch folder so runs don't touch `user/`.
 - `tools/fetch-assets.sh` needs git access to github.com; set `OXY_CACHE` to
   reuse an existing sparse checkout.

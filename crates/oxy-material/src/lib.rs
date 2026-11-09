@@ -13,9 +13,11 @@
 //! across UV seams and don't stretch with the UV layout.
 //!
 //! [`skin`] builds the skin stack from a few user parameters; [`eye`] makes
-//! eyeball meshes and iris textures. All patterns and parameters are our own.
+//! eyeball meshes and iris textures; [`hair`] makes alpha-tested strand
+//! textures for hair cards. All patterns and parameters are our own.
 
 pub mod eye;
+pub mod hair;
 pub mod layers;
 pub mod noise;
 pub mod skin;

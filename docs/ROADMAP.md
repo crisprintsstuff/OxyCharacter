@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-07 (M4) · **Version:** 0.1.0 (unreleased)
+**Last updated:** 2026-11-09 (M5) · **Version:** 0.1.0 (unreleased)
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -17,7 +17,7 @@ Legend: ✅ done · 🚧 in progress · ⏳ planned · ❔ needs a decision
 | M2 | Rigged & exportable: skeleton refit, poses, skinned glTF | ✅ |
 | M3 | Projects, undo/redo, autosave & recovery | ✅ |
 | M4 | Materials: UVs, procedural skin, eyes, texture export | ✅ |
-| M5 | Clothing & hair: fitting, weight transfer, hide-under | ⏳ next |
+| M5 | Clothing & hair: fitting, weight transfer, hide-under | ✅ |
 | M6 | Face & expressions | ⏳ |
 | M7 | Production export: LODs, atlases, engine presets, FBX | ⏳ |
 | M8+ | Stretch: photo-to-head, cloth preview, scripting, USD | ⏳ |
@@ -79,27 +79,31 @@ Not yet: image layers (tattoos/decals, imported textures), GPU compositing,
 teeth/tongue/eyelashes/brows, subsurface scattering, eye wetness/cornea
 geometry, texture painting.
 
-## Next: M5 — Clothing & hair ⏳
+### M5 — Clothing & hair ✅
 
-Goal: garments and hair that fit any body and follow poses.
+- `oxy-fit`: bind (closest triangle, barycentrics, tangent-frame offset),
+  refit, Laplacian smoothing, push-out, per-item tightness, Gaussian RBF for
+  loose items. Skin weights are a smoothed barycentric transfer.
+- Hide-under: body triangles fully covered by a garment are not drawn or
+  exported. A higher layer hides covered triangles of a lower one (shirt over
+  trousers). Garments fit to the body, not to each other.
+- Wardrobe tab with four original items generated from the body (T-shirt,
+  trousers, skirt, hair cards). Hair uses a procedural alpha-tested strand
+  texture; export adds `KHR_materials_anisotropy`.
+- Wardrobe packages: a folder with `manifest.json` and OBJ meshes
+  (`oxycharacter-wardrobe` v1). OxyBrush pieces that sit on the body are
+  bound at import and refit; pieces held away stay rigid.
+- Items, fit settings and hidden-triangle lists are in projects and undo.
+  Export adds them as skinned meshes and drops hidden body triangles.
+- `oxy wardrobe` lists built-ins; `oxy export --wear` / `--wardrobe` includes
+  them.
 
-1. **Fitting** (`oxy-fit`, new crate, no GPU): bind each garment vertex to
-   the base body (closest triangle, barycentrics, normal offset, tangent
-   frame); refit on every body change; Laplacian smoothing and push-out
-   against the body; per-item tightness. RBF deformation for loose items.
-2. **Weights:** transfer from the body with smoothing (beyond today's
-   nearest-vertex), so sleeves and skirts bend well.
-3. **Hide-under masks:** hide body triangles fully covered by a garment.
-4. **Content:** an asset package format (`manifest` + glTF), a content
-   browser tab, a few original/CC0 garments, and OxyBrush accessories as
-   fittable items (bind at import).
-5. **Hair:** card meshes with an anisotropic material (alpha-tested strands
-   texture generated procedurally).
-6. **Projects:** items, fit settings and hidden-triangle masks in
-   `DocState`/`Project`, export as skinned meshes.
+Not yet: mesh thumbnails in the browser, glTF import of packages, zip
+packages, collision between garment layers, cloth simulation, anisotropic
+highlights in the viewport (the export carries the extension; Bevy's standard
+material does not).
 
-Open questions ❔: package format details; whether to support layered
-garments (shirt under jacket) in M5 or later.
+## Next: M6 — Face & expressions ⏳
 
 ## Later
 
@@ -124,8 +128,9 @@ Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
   Linux software rendering (lavapipe).
 - **Native file dialogs:** paths are typed into a dialog with recent files.
 - **No teeth, tongue, eyelashes or brows** yet (M6); eyes are simple spheres.
-- **Accessories don't refit** to body changes (M5); weight transfer is
-  nearest-vertex.
+- **Accessories that sit away from the body don't refit** (they only skin).
+  Fitted ones use smoothed weight transfer; rigid ones still use
+  nearest-vertex. There is no collision between overlapping garments.
 - **Skinning is linear blend**: elbows/shoulders pinch in extreme poses
   (corrective shapes or dual quaternions later).
 - **Poses are presets** only; no interactive bone posing or animation clips.

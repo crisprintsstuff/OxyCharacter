@@ -194,6 +194,8 @@ fn rigged_export_is_consistent_if_available() {
             &[],
             &Default::default(),
             &opts,
+            &[],
+            &[],
             &mut bytes,
         )
         .unwrap();
@@ -334,4 +336,150 @@ fn skin_bake_and_eyes_if_available() {
         }
         std::fs::write(out.join("iris.png"), png_bytes(&iris(&p.eyes)).unwrap()).unwrap();
     }
+}
+
+/// Built-in clothes bind to the real body, follow a shape change, hide covered
+/// skin, and export as skinned meshes. Skipped without `OXY_MAKEHUMAN_DATA`.
+#[test]
+fn clothing_fits_and_exports_if_available() {
+    use oxy_fit::{author_builtins, fit, occlusion, CoverMesh, FitSettings};
+    const TEE: &str = "tee";
+    const PANTS: &str = "pants";
+    use oxy_io::export::{character_glb, ExportOptions, WornMesh};
+    let Some(dir) = std::env::var_os("OXY_MAKEHUMAN_DATA") else {
+        eprintln!("OXY_MAKEHUMAN_DATA not set; skipping");
+        return;
+    };
+    let asset = oxy_io::makehuman::import(dir.as_ref()).unwrap();
+    let base = asset.evaluate_full(&asset.catalog.defaults());
+    let names = asset
+        .rig
+        .as_ref()
+        .map(|r| r.bones.iter().map(|b| b.name.clone()).collect::<Vec<_>>());
+    let skin = asset.rig.as_ref().map(|r| r.skin.as_slice());
+    let items = author_builtins(&base.body, &asset.mesh.base.indices, skin, names.as_deref());
+    let tee = items.iter().find(|g| g.id == TEE).expect("t-shirt");
+    let pants = items.iter().find(|g| g.id == PANTS).expect("trousers");
+    assert!(items.iter().any(|g| g.id == "skirt"));
+    assert!(items.iter().any(|g| g.id == "hair"), "hair cards");
+    assert!(
+        tee.mesh.positions.len() > 400,
+        "shirt {:?}",
+        tee.mesh.positions.len()
+    );
+    assert!(pants.mesh.positions.len() > 400);
+    let settings = FitSettings {
+        smooth_steps: 0,
+        margin: 0.0,
+        ..tee.settings.clone()
+    };
+    let same = fit(
+        &base.body,
+        &asset.mesh.base.indices,
+        &[],
+        &tee.mesh,
+        &tee.binding,
+        &settings,
+    );
+    let err = same
+        .iter()
+        .zip(&tee.mesh.positions)
+        .map(|(a, b)| a.distance(*b))
+        .fold(0.0f32, f32::max);
+    assert!(
+        err < 2e-3,
+        "shirt does not round-trip on the base body ({err})"
+    );
+    let tall: Vec<_> = base
+        .body
+        .iter()
+        .map(|p| oxy_io::glam::Vec3::new(p.x, p.y * 1.15, p.z))
+        .collect();
+    let lifted = fit(
+        &tall,
+        &asset.mesh.base.indices,
+        &[],
+        &tee.mesh,
+        &tee.binding,
+        &settings,
+    );
+    let rise = lifted
+        .iter()
+        .zip(&tee.mesh.positions)
+        .map(|(a, b)| a.y - b.y)
+        .fold(0.0f32, f32::max);
+    assert!(rise > 0.05, "shirt should rise with the body, {rise}");
+
+    // The shirt covers a real patch of the torso.
+    let shirt_idx = tee.mesh.flat_indices();
+    let shirt_n = oxy_mesh::Mesh::new(tee.mesh.positions.clone(), shirt_idx.clone())
+        .unwrap()
+        .compute_normals(&tee.mesh.positions);
+    let body_n = asset.mesh.base.compute_normals(&base.body);
+    let (hidden, _) = occlusion(
+        &base.body,
+        &body_n,
+        &asset.mesh.base.indices,
+        &[CoverMesh {
+            positions: &tee.mesh.positions,
+            indices: &shirt_idx,
+            normals: &shirt_n,
+            layer: tee.settings.layer,
+            hide_body: true,
+            cover: tee.settings.cover,
+        }],
+    );
+    assert!(
+        hidden.len() > 200,
+        "shirt should hide a patch of skin, got {}",
+        hidden.len()
+    );
+    let mut worn = Vec::new();
+    for id in [TEE, "hair"] {
+        let g = items.iter().find(|g| g.id == id).unwrap();
+        worn.push(WornMesh {
+            name: g.name.to_string(),
+            positions: g.mesh.positions.clone(),
+            indices: g.mesh.flat_indices(),
+            uvs: g.mesh.uvs.clone(),
+            skin: Some(g.skin.clone()),
+            base_color: [g.color[0], g.color[1], g.color[2], 1.0],
+            hair: g.kind == oxy_fit::ItemKind::Hair,
+            double_sided: true,
+        });
+    }
+    let mut bytes = Vec::new();
+    let opts = ExportOptions {
+        texture_size: 64,
+        ..Default::default()
+    };
+    character_glb(
+        &asset,
+        &asset.catalog.defaults(),
+        &[],
+        &Default::default(),
+        &opts,
+        &worn,
+        &hidden,
+        &mut bytes,
+    )
+    .unwrap();
+    let (doc, buffers, _) = gltf::import_slice(&bytes).unwrap();
+    assert!(doc.meshes().any(|m| m.name() == Some("T-shirt")));
+    let hair = doc
+        .meshes()
+        .find(|m| m.name() == Some("Hair"))
+        .expect("hair mesh");
+    let mat = hair.primitives().next().unwrap().material();
+    assert_eq!(mat.alpha_mode(), gltf::material::AlphaMode::Mask);
+    assert!(mat.double_sided());
+    let shirt = doc.meshes().find(|m| m.name() == Some("T-shirt")).unwrap();
+    let prim = shirt.primitives().next().unwrap();
+    let reader = prim.reader(|b| Some(&buffers[b.index()]));
+    for w in reader.read_weights(0).unwrap().into_f32() {
+        assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-3);
+    }
+    let body = doc.meshes().find(|m| m.name() == Some("body")).unwrap();
+    let body_tris = body.primitives().next().unwrap().indices().unwrap().count() / 3;
+    assert!(body_tris + 3 <= asset.mesh.base.indices.len() / 3);
 }
