@@ -13,8 +13,8 @@ use bevy_egui::PrimaryEguiContext;
 
 use crate::editor::Editor;
 
-/// Region highlight color (linear RGB) — OxyCharacter's accent.
-pub const HIGHLIGHT: [f32; 3] = [0.10, 0.55, 1.0];
+/// Region highlight (linear RGB). Kept in the same blue family as `theme::ACCENT`.
+pub const HIGHLIGHT: [f32; 3] = [0.08, 0.42, 1.0];
 
 #[derive(Component)]
 pub struct Character;
@@ -106,13 +106,16 @@ pub fn setup(
         })),
     ));
 
-    // Floor disc.
+    // Dark floor disc. A grid is drawn just above it (`draw_floor`) so the
+    // viewport reads as a studio ground without an environment map, which
+    // software renderers would not reflect anyway.
     commands.spawn((
-        Mesh3d(meshes.add(Circle::new(0.75).mesh().resolution(96))),
+        Mesh3d(meshes.add(Circle::new(2.6).mesh().resolution(96))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.025, 0.027, 0.03),
+            base_color: Color::srgb(0.012, 0.013, 0.016),
             perceptual_roughness: 1.0,
-            reflectance: 0.1,
+            metallic: 0.0,
+            reflectance: 0.02,
             ..default()
         })),
         Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
@@ -545,6 +548,22 @@ pub fn configure_gizmos(mut store: ResMut<GizmoConfigStore>) {
     let (config, _) = store.config_mut::<DefaultGizmoConfigGroup>();
     config.depth_bias = -1.0;
     config.line.width = 2.0;
+}
+
+/// Ground grid, just above the floor disc. Major lines every metre.
+pub fn draw_floor(mut gizmos: Gizmos) {
+    let y = 0.002;
+    let n = 12i32;
+    let step = 0.25;
+    let extent = n as f32 * step;
+    let minor = Color::srgba(0.55, 0.62, 0.74, 0.22);
+    let major = Color::srgba(0.65, 0.74, 0.88, 0.42);
+    for i in -n..=n {
+        let x = i as f32 * step;
+        let color = if i % 4 == 0 { major } else { minor };
+        gizmos.line(Vec3::new(x, y, -extent), Vec3::new(x, y, extent), color);
+        gizmos.line(Vec3::new(-extent, y, x), Vec3::new(extent, y, x), color);
+    }
 }
 
 pub fn draw_skeleton(editor: Res<Editor>, mut gizmos: Gizmos) {

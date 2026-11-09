@@ -1,4 +1,4 @@
-# ADR 0007: Clothing and hair fitting
+# ADR 0009: Clothing and hair fitting
 
 **Status:** accepted
 

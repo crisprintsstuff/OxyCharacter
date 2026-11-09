@@ -7,6 +7,7 @@
 //!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--wardrobe-tab]
 //!              [--wear tee,pants,hair] [--iris NAME] [--open FILE.oxyc]
 //!              [--save-as FILE.oxyc] [--close]
+//!              [--dialog open|save|export|import]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
@@ -14,9 +15,13 @@ mod bridge;
 mod clothing;
 mod document;
 mod editor;
+mod file_dialog;
 mod look;
 mod scene;
+mod shell;
+mod theme;
 mod ui;
+mod wardrobe_ui;
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -30,6 +35,7 @@ use bevy::{
 };
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
+use document::PathDialog;
 use editor::Editor;
 use scene::{CharacterHeight, Orbit, ViewportRect};
 use ui::UiState;
@@ -59,6 +65,8 @@ struct Args {
     open: Option<PathBuf>,
     save_as: Option<PathBuf>,
     close: bool,
+    /// Show the typed-path dialog (screenshot / automation). Skips the native dialog.
+    dialog: Option<PathDialog>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -104,6 +112,19 @@ fn parse_args() -> Result<Args, String> {
             "--open" => a.open = Some(val()?.into()),
             "--save-as" => a.save_as = Some(val()?.into()),
             "--close" => a.close = true,
+            "--dialog" => {
+                a.dialog = Some(match val()?.as_str() {
+                    "open" => PathDialog::Open,
+                    "save" | "save-as" => PathDialog::SaveAs,
+                    "export" => PathDialog::Export,
+                    "import" | "import-oxb" => PathDialog::ImportOxb,
+                    other => {
+                        return Err(format!(
+                            "--dialog expects open, save, export or import (got {other})"
+                        ))
+                    }
+                })
+            }
             "-h" | "--help" => return Err("see crate docs: oxycharacter [--bundle PATH] [--set id=v] [--select Top/Sub] [--hover ID] [--head] [--size WxH] [--import-oxb FILE [--apply-import]] [--screenshot out.png [--frames N]]".into()),
             other => return Err(format!("unknown argument {other}")),
         }
@@ -162,33 +183,30 @@ fn automation(
 }
 
 fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
-    if !std::mem::take(&mut state.export_requested) {
+    let Some(path) = state.export_path.take() else {
         return;
-    }
+    };
     let ed = &mut *editor;
     let (accessories, worn, hidden) = ed.clothing_export();
     let opts = oxy_io::export::ExportOptions {
         skin_color: ed.skin,
         ..ed.export.clone()
     };
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let path = PathBuf::from(format!("exports/character-{stamp}.glb"));
-    let result = std::fs::create_dir_all("exports")
-        .map_err(oxy_io::IoError::from)
-        .and_then(|_| {
-            oxy_io::export::character_glb(
-                &ed.asset,
-                &ed.params,
-                &accessories,
-                &ed.material,
-                &opts,
-                &worn,
-                &hidden,
-                BufWriter::new(File::create(&path)?),
-            )
-        });
+    let result = (|| {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        oxy_io::export::character_glb(
+            &ed.asset,
+            &ed.params,
+            &accessories,
+            &ed.material,
+            &opts,
+            &worn,
+            &hidden,
+            BufWriter::new(File::create(&path)?),
+        )
+    })();
     ed.status = match result {
         Ok(st) => format!(
             "Exported {} ({} mesh(es), {} bones, {} blendshape(s))",
@@ -305,9 +323,18 @@ fn main() -> ExitCode {
             editor.apply_pending();
         }
     }
+    if let Some(kind) = args.dialog {
+        let s = editor.session.as_mut().expect("session");
+        s.force_typed = true;
+        s.dialog_request = Some(kind);
+    }
 
     App::new()
-        .insert_resource(ClearColor(Color::srgb(0.085, 0.09, 0.1)))
+        .insert_resource(ClearColor(Color::srgb(
+            theme::VIEWPORT_BG_SRGB[0],
+            theme::VIEWPORT_BG_SRGB[1],
+            theme::VIEWPORT_BG_SRGB[2],
+        )))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "OxyCharacter".into(),
@@ -349,7 +376,7 @@ fn main() -> ExitCode {
             Startup,
             (scene::setup, scene::configure_gizmos, look::setup_look).chain(),
         )
-        .add_systems(EguiPrimaryContextPass, ui::ui_system)
+        .add_systems(EguiPrimaryContextPass, shell::ui_system)
         .add_systems(
             Update,
             (
@@ -363,6 +390,7 @@ fn main() -> ExitCode {
                 bridge::file_drop,
                 scene::sync_accessories,
                 scene::sync_clothing,
+                scene::draw_floor,
                 scene::draw_skeleton,
                 look::bake_textures,
                 look::sync_eyes,

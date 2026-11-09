@@ -31,6 +31,7 @@ Editor options (useful for scripted screenshots / smoke tests):
 ```sh
 oxycharacter --set gender=1 --select Head/Nose --hover nose/nose-scale-horiz-decr-incr \
              --head --screenshot shot.png --frames 40
+oxycharacter --dialog open --screenshot dialog.png --frames 40   # typed-path dialog, no portal window
 ```
 
 Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json oxycharacter …`
@@ -38,18 +39,27 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 
 ## Editor
 
-- **Content** (left): body presets, skin-tone swatches, a wardrobe (clothing and hair) and accessories.
-- **Viewport** (center): orbit (LMB), pan (RMB/MMB), zoom (wheel); stats overlay.
-- **Morph** (right): search, category tree with modified counts, sliders with value
-  readout, reset and range-end labels. Hovering or dragging a slider tints the
-  region it affects. Symmetry links left/right sliders. Double-click resets a slider.
-- **Toolbar**: reset, randomize, body/head framing, symmetry, glTF export (to `exports/`).
+The window uses the same dark chrome as OxyBrush: a menu and a centered
+**Morph / Material / Pose / Export** switch, a tool-options bar, an icon rail,
+the viewport, a stacked inspector, a bottom shelf and a status bar.
+
+- **Shelf:** body presets (procedural silhouette cards), skin-tone swatches
+  plus a custom color, the **wardrobe** (clothing and hair) and OxyBrush
+  accessories. The rail opens the same pages.
+- **Viewport:** orbit (LMB), pan (RMB/MMB), zoom (wheel). Mesh stats sit in the
+  status bar. Hovering or dragging a slider tints the region it affects.
+- **Morph:** search (top bar), category tabs with modified counts, sliders with
+  a value readout, reset and range-end labels. Symmetry links left and right
+  (the X axis). Double-click resets a slider. "Modified" hides untouched sliders.
+- **Material, Pose, Export:** the other modes. Reset, randomize and framing stay
+  on the rail and the menus. Export asks for a `.glb` path (the suggestion is
+  `exports/<project>.glb`) and includes whatever is worn.
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
 ## Skin and eyes
 
-The **Material** tab (top right) sets the look. Skin is **procedural**: a
+**Material** mode sets the look. Skin is **procedural**: a
 layer stack (tone, variation, freckles, blush, eye shadow, lips, surface
 detail, roughness) baked into albedo, normal and roughness textures over the
 body's UVs. Face regions come from the rig's face-bone weights, so they follow
@@ -61,7 +71,7 @@ embed the baked textures (1024–4096 px) and pass the glTF validator.
 
 ## Clothing and hair
 
-The **Wardrobe** tab puts clothes and hair on the character. A T-shirt,
+The **Wardrobe** page (rail icon, and the chip on the shelf) puts clothes and hair on the character. A T-shirt,
 trousers, a skirt and hair are generated from the body (nothing is downloaded
 for them). They **refit when the body changes** and **skin with the skeleton**
 when you pose.
@@ -95,7 +105,7 @@ oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpos
 
 - **File › New / Open / Open recent / Save / Save as** — projects are small,
   human-readable JSON files (`.oxyc`): only the sliders you changed, skin,
-  pose and export options, plus any sculpted morphs and accessories, so a
+  pose and export options, plus any sculpted morphs, worn clothing and accessories, so a
   project is self-contained. A fingerprint of the base mesh guards against
   opening a project on a different body (sculpts are then skipped with a note).
 - **Undo / redo** for every edit; a slider drag is one step.
@@ -110,8 +120,17 @@ oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpos
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Ctrl+O / Ctrl+N | Open / new |
 
-File paths are typed into a small dialog for now (with recent files); native
-file dialogs are planned.
+Open, Save as, glTF export and Import .oxb use the system file dialog when the
+desktop provides one (an XDG file chooser on Linux), with filters for `.oxyc`,
+`.oxb` and `.glb`. Open starts in the most recent project's folder, Save as
+in the current file's folder, export in `exports/`, and import in
+`user/oxybrush/` when that folder exists. **Open recent** stays in the File
+menu. If there is no native dialog (a headless session, or Linux without the
+portal), the same actions use a small path field that still lists recent
+projects. `OXY_FILE_DIALOG=fallback` forces that field; `=native` forces the
+system dialog.
+
+![Typed path dialog used when no native file chooser is available](docs/images/file-dialog-fallback.png)
 
 ![Unsaved-changes prompt after reopening and editing a project](docs/images/project-unsaved-prompt.png)
 
@@ -122,8 +141,9 @@ body, fingers, toes and face) that **refits to every morph**: joints are
 averages of points that the morph targets move, including sculpts brought
 back from OxyBrush.
 
-- **Pose tab** (top right): preview poses (*Rest/A-pose, T-pose, Relaxed,
-  Wave, Stride*) with linear-blend skinning, and *Show skeleton*.
+- **Pose** mode: preview poses (*Rest/A-pose, T-pose, Relaxed, Wave, Stride*)
+  with linear-blend skinning, and *Show skeleton*. **Export** mode holds the
+  glTF options.
 - **Export (.glb)**: skeleton + skin weights (4 per vertex), bind pose
   *Rest* or *T-pose*, sculpted morphs baked or as named **blendshapes**,
   clothing and hair fitted to the body, accessories skinned with the
@@ -132,12 +152,21 @@ back from OxyBrush.
 ![Wave pose with the skeleton overlay](docs/images/pose-wave-skeleton.png)
 
 Exports pass the Khronos glTF validator with no errors or warnings, and load
-and deform in three.js. They have not yet been tried in Blender, Godot, Unity
-or Unreal.
+and deform in three.js. The same files were imported headless in **Blender
+4.0.2** and **Godot 4.7.2** (`tools/check-gltf-engines`): static mesh,
+rigged rest pose, T-pose bind, a blendshape, embedded textures (albedo,
+normal, roughness, iris) and a skinned accessory. In both engines the bind
+pose reproduces the mesh, skin weights sum to 1, rotating the upper arm and
+the eye bone deforms the body and eyeball, the T-pose left wrist stays level
+with the shoulder, and the shape key moves vertices. Godot renames mesh
+nodes that contain `.` (`eye.L` → `eye_L`) and keeps the bone names
+(`upperarm01.L`). Unity and Unreal have not been run.
 
 ```sh
 oxy export assets/generated/makehuman.oxyb hero.glb --tpose --texture-size 2048 gender=1 muscle=0.7
 oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/morphs
+oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpose
+oxy export assets/generated/makehuman.oxyb hero.glb --accessory hat.obj
 ```
 
 ## Sculpting in OxyBrush
@@ -145,16 +174,16 @@ oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/
 OxyCharacter round-trips with [OxyBrush](https://github.com/crisprintsstuff/OxyBrush)
 through its native `.oxb` project files: no export/import dance, no shared code.
 
-1. **Send to OxyBrush** (toolbar or File menu) writes the current character to
+1. **Send to OxyBrush** (top bar or File menu) writes the current character to
    `user/oxybrush/character-<time>.oxb` and opens it in OxyBrush
    (`$OXYBRUSH_BIN`, else `oxybrush` on `PATH`; if neither starts, open the file yourself).
 2. Sculpt the body, add new pieces (hats, hair, props…), and **save** (Ctrl+S).
 3. OxyCharacter notices the save and shows **Import from OxyBrush**:
    - the reshaped **body becomes a morph slider** under *Custom › Sculpted*
      (saved to `user/morphs/` and reloaded on start; 🗑 deletes it);
-   - **new pieces become accessories** (left panel → *Accessories*). A piece
-     that sits on the body is fitted to later shape changes; one held away
-     only follows the skeleton. Both export with the body.
+   - **new pieces become accessories** (shelf → *Accessories*). A piece that
+     sits on the body is fitted to later shape changes; one held away only
+     follows the skeleton. Both export with the body.
 
 You can also import any `.oxb` with **Import .oxb** or by dropping it on the window.
 
@@ -168,6 +197,8 @@ the fallback. Sculpting on
 morph; detail finer than the base mesh stays in OxyBrush for now. Remeshing or
 destructive subdivision changes the topology, so such a body can only come
 back as a separate mesh. See [ADR 0004](docs/adr/0004-oxybrush-bridge.md).
+
+The two shots below are from the earlier OxyBrush bridge session. OxyBrush is not in this environment, so they still show the window chrome from before the family restyle.
 
 ![A sculpt coming back from OxyBrush](docs/images/oxybrush-live-loop.png)
 

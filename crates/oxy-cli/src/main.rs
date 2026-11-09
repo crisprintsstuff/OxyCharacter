@@ -3,7 +3,7 @@
 //! ```text
 //! oxy import-makehuman <makehuman/data dir> <out.oxyb>
 //! oxy info <bundle.oxyb>
-//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants,hair] [--wardrobe DIR] [param=value ...]
+//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...]
 //! oxy wardrobe <bundle.oxyb>
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
@@ -138,6 +138,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut params = Vec::new();
             let mut wear = None;
             let mut wardrobe = None;
+            let mut accessories = Vec::new();
             let mut it = rest.iter();
             while let Some(arg) = it.next() {
                 match *arg {
@@ -162,20 +163,25 @@ fn run(args: &[String]) -> Result<(), String> {
                             println!("custom morph {id} ({})", m.label);
                         }
                     }
+                    "--accessory" => {
+                        let file = it.next().ok_or("--accessory needs an .obj file")?;
+                        accessories.push(load_accessory(file)?);
+                        println!("accessory {}", accessories.last().map(|a| a.name.as_str()).unwrap_or(file));
+                    }
                     kv => params.push(kv),
                 }
             }
             let values = parse_params(&a, &params)?;
             let (worn, hidden) = assemble_clothing(&a, &values, wear.copied(), wardrobe.copied())?;
             let f = File::create(out).map_err(|e| format!("{out}: {e}"))?;
-            let st = export::character_glb(&a, &values, &[], &Default::default(), &opts, &worn, &hidden, BufWriter::new(f)).map_err(|e| e.to_string())?;
+            let st = export::character_glb(&a, &values, &accessories, &Default::default(), &opts, &worn, &hidden, BufWriter::new(f)).map_err(|e| e.to_string())?;
             println!(
                 "wrote {out}: {} mesh(es), {} bones, {} blendshape(s), {} texture(s), {} hidden body triangle(s)",
                 st.meshes, st.bones, st.blendshapes, st.textures, hidden.len()
             );
         }
         _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
         }
     }
     Ok(())
@@ -321,6 +327,27 @@ fn assemble_clothing(
         })
         .collect();
     Ok((worn, hidden))
+}
+
+/// OBJ mesh as an accessory. Faces are fan-triangulated; the file stem is the name.
+fn load_accessory(path: &str) -> Result<oxybrush::Accessory, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let obj = oxy_io::obj::parse(&text, path).map_err(|e| e.to_string())?;
+    let triangles = obj.triangles();
+    if obj.positions.is_empty() || triangles.is_empty() {
+        return Err(format!("{path}: no triangles"));
+    }
+    let name = Path::new(path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "accessory".into());
+    Ok(oxybrush::Accessory {
+        name,
+        positions: obj.positions,
+        triangles,
+        color: vec![],
+    })
 }
 
 fn parse_params(a: &CharacterAsset, params: &[&str]) -> Result<oxy_morph::Params, String> {

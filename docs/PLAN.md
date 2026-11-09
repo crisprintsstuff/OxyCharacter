@@ -177,8 +177,9 @@ so the skeleton refits exactly to every morph (sculpts derive aux motion from
 nearby body vertices); bone orientation (+Y along the bone, roll from roll
 planes); pose presets with CPU skinning and a skeleton overlay; skinned glTF
 with T-pose bind option, blendshapes for sculpted morphs and skinned
-accessories. Validated with the Khronos glTF validator and three.js.
-Not yet: checks in Blender/Godot/Unity/Unreal, a reduced game skeleton
+accessories. Validated with the Khronos glTF validator, three.js, and
+headless imports in Blender 4.0.2 and Godot 4.7.2 (`tools/check-gltf-engines`).
+Not yet: Unity/Unreal, a reduced game skeleton
 option, corrective shapes, dual-quaternion skinning, interactive posing.
 
 Original plan:
@@ -194,8 +195,10 @@ fingerprint, version + migration hook, atomic writes, reconcile with warnings);
 snapshot undo/redo (one step per finished edit, 200 steps); unsaved-changes
 tracking, prompts on New/Open/close, recent files, autosave every 60 s with
 crash recovery; keyboard shortcuts. JSON instead of RON: no extra dependency,
-equally diff-friendly.
-Not yet: native file dialogs, preset saving, slider favourites.
+equally diff-friendly. Open, Save as, export and `.oxb` import use the system
+file dialog when a desktop portal is available, and a typed path otherwise
+([ADR 0007](adr/0007-native-file-dialogs.md)).
+Not yet: preset saving, slider favourites.
 
 Original plan:
 - `oxy-project`: save/load parameters (RON), asset references by stable IDs, schema versioning + migrations.
@@ -206,7 +209,7 @@ Original plan:
 Original plan:
 - `oxy-material`: layer stack + GPU compositing; skin tone, makeup, tattoo decals with UV projection; eye color/iris; export baking.
 
-### M5 — Clothing & hair ✅ *implemented* (see ROADMAP and [ADR 0007](adr/0007-clothing-and-hair.md))
+### M5 — Clothing & hair ✅ *implemented* (see ROADMAP and [ADR 0009](adr/0009-clothing-and-hair.md))
 
 Original plan:
 - `oxy-fit`: bind/fit/smooth/collide; skin-weight transfer; hide-under masks.
@@ -234,28 +237,31 @@ wardrobe tab without mesh thumbnails, and anisotropy on export only.
 
 ## 5a. Editor UI layout
 
-A conventional three-panel 3D-editor layout (shared by most DCC tools), with
-OxyCharacter's own styling (dark theme, blue accent, text-and-symbol buttons):
+The chrome is the Oxy family theme ([ADR 0008](adr/0008-oxy-family-theme.md)):
+near-black panels, a blue accent, a centered mode switch and a bottom shelf.
+Tokens live in `crates/oxy-app/src/theme.rs` (egui only) so OxyBrush can use
+the same values later. Icons are original geometry; the UI face is Roboto.
 
 ```
-┌ Menu: File · Edit · View ───────────────────────────────────────────────────┐
-├ Toolbar: Reset · Random · Body/Head framing · Symmetry · Export   Morph|Material|Pose ┤
-├──────────────┬──────────────────────────────────────┬───────────────────────┤
-│ Content      │ Viewport                             │ Morph                 │
-│ [Presets|Skin]│  stats overlay (verts, tris, morphs) │  search               │
-│  filter chips│                                      │  category tree        │
-│  preset cards│        3D character, orbit camera    │   (modified counts)   │
-│  (procedural │   hovered slider's region is tinted  │  sliders: label,      │
-│  silhouettes)│                                      │   value, reset, ends  │
-│              │                                      │  [modified only][sym] │
-├──────────────┴──────────────────────────────────────┴───────────────────────┤
-│ Status bar: last action · base-mesh license                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌ OxyCharacter  File Edit Mode Window Viewport Help    Morph|Material|Pose|Export   Search…  ↩ ↪ ┐
+├ Tool options for the active mode (mirror X, pose, bind pose, material amounts)              ┤
+├──┬──────────────────────────────────────────────────────────────┬───────────────────────────┤
+│☰ │ Viewport (vignette, grid floor, axis gizmo)                  │ Categories / list         │
+│  │        3D character, orbit camera                            │                           │
+│  │        hovered slider's region is tinted                     │ Properties · sliders      │
+├──┴──────────────────────────────────────────────────────────────┴───────────────────────────┤
+│ Shelf: Presets · Skin · Accessories          category list + round thumbnail cards         │
+│ Status: verts · tris · height · morphs · FPS          action          Connected · mode     │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Behaviours: hovering or dragging a slider tints the affected region; symmetric
-editing links `l-`/`r-` sliders; double-click a slider to reset it; "Show
-modified only" filters the list; search covers labels, ids and categories.
+editing links `l-`/`r-` sliders (the X axis; Y and Z are shown disabled);
+double-click a slider to reset it; "Modified" filters the list; search covers
+labels, ids and categories and switches to Morph. Pose, material and export
+options are the other modes. The shelf holds body presets, skin tones and
+OxyBrush accessories. Mesh stats and the OxyBrush link are on the status bar;
+the base-mesh licence is in Help → About and on the stats tooltip.
 
 ## 6. Repository layout (target)
 

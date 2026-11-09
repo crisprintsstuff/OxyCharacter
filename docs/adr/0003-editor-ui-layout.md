@@ -1,11 +1,12 @@
 # ADR 0003: Editor layout
 
-**Status:** accepted
+**Status:** accepted, styling superseded in part by [ADR 0008](0008-oxy-family-theme.md)
 
-The editor uses the conventional three-panel DCC layout — content browser on
-the left, viewport in the center, property editor (morph tree + sliders) on the
-right, toolbar on top, status bar at the bottom. This arrangement is generic to
-3D tools and was requested as the target structure. Styling, iconography,
-colors, naming and widgets are OxyCharacter's own (egui dark theme, blue
-accent, text/symbol buttons, procedural preset thumbnails). We do not copy any
-product's icons, artwork, colors or trade dress.
+The editor uses a conventional DCC arrangement — a viewport in the center,
+content within reach, a property editor for the morph tree and sliders, and a
+status bar. That arrangement is generic to 3D tools. Styling, iconography,
+colors, naming and widgets are our own. ADR 0008 replaces the original dark
+egui skin and the left-hand content column with the Oxy family chrome (mode
+switch, tool rail, bottom shelf, stacked inspector). The feature split in this
+ADR still holds: presets, skin and accessories are the content browser; morphs,
+materials, pose and export are the property editor.

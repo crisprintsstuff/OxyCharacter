@@ -33,8 +33,10 @@ Cargo workspace, CI (fmt, clippy, test), clean-room policy, `oxy-mesh`
   own taxonomy and auto-paired bipolar sliders; macro grid (gender, age,
   muscle, weight, height).
 - `.oxyb` binary bundle; `oxy` CLI (`import-makehuman`, `info`, `export`).
-- Bevy + egui editor: content panel, viewport, morph tree + sliders, region
-  highlight on hover, symmetry, search, presets, randomize, skin swatches.
+- Bevy + egui editor: morph categories and sliders, region highlight on hover,
+  symmetry, search, presets, randomize, skin swatches. The window chrome was
+  restyled on 2026-11-09 to the shared Oxy family layout (mode switch, tool
+  rail, shelf, stacked inspector) without dropping those editors.
 
 ### M1.5 — OxyBrush bridge ✅
 - Independent `.oxb` reader/writer; `VMAP` (OxyBrush ≥ 2.5.8) for exact
@@ -52,6 +54,9 @@ Cargo workspace, CI (fmt, clippy, test), clean-room policy, `oxy-mesh`
 - Skinned glTF: joint hierarchy, IBMs, 4 weights/vertex, T-pose bind option,
   sculpts as blendshapes, skinned accessories.
 - Verified: Khronos validator 0 errors / 0 warnings; three.js deforms correctly.
+  Blender 4.0.2 and Godot 4.7.2 (headless, `tools/check-gltf-engines`) import
+  static, rigged rest, T-pose, blendshape, textured and accessory files and
+  deform them. Unity and Unreal have not been run.
 
 ### M3 — Projects & UX ✅
 - `.oxyc` JSON projects: changed sliders only, skin, pose, export options,
@@ -87,7 +92,7 @@ geometry, texture painting.
 - Hide-under: body triangles fully covered by a garment are not drawn or
   exported. A higher layer hides covered triangles of a lower one (shirt over
   trousers). Garments fit to the body, not to each other.
-- Wardrobe tab with four original items generated from the body (T-shirt,
+- Wardrobe shelf (rail icon and chip) with four original items generated from the body (T-shirt,
   trousers, skirt, hair cards). Hair uses a procedural alpha-tested strand
   texture; export adds `KHR_materials_anisotropy`.
 - Wardrobe packages: a folder with `manifest.json` and OBJ meshes
@@ -122,11 +127,14 @@ Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
 
 ## Known gaps (cross-cutting)
 
-- **Engine imports not tried:** Blender, Godot, Unity, Unreal (M2 exports
-  were validated with the Khronos validator and three.js only).
+- **Unity and Unreal imports not tried.** Blender 4.0.2 and Godot 4.7.2 were
+  checked headless (see above). Nothing has been opened in Unity or Unreal.
 - **Never run on a real GPU, Windows or macOS:** everything so far ran under
-  Linux software rendering (lavapipe).
-- **Native file dialogs:** paths are typed into a dialog with recent files.
+  Linux software rendering (lavapipe). The native file dialog was not shown
+  on a desktop portal for the same reason; the typed-path fallback was.
+- **Native file dialogs need a desktop session.** Headless runs and Linux
+  without `org.freedesktop.portal.FileChooser` keep the typed-path dialog
+  (recent projects included). `OXY_FILE_DIALOG=native` forces the system dialog.
 - **No teeth, tongue, eyelashes or brows** yet (M6); eyes are simple spheres.
 - **Accessories that sit away from the body don't refit** (they only skin).
   Fitted ones use smoothed weight transfer; rigid ones still use

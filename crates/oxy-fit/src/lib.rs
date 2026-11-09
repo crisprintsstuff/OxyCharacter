@@ -9,7 +9,7 @@
 //! the garment. Triangles the garment fully covers can be hidden so the body
 //! does not poke through.
 //!
-//! See `docs/adr/0007-clothing-and-hair.md`.
+//! See `docs/adr/0009-clothing-and-hair.md`.
 
 mod bvh;
 pub mod package;

@@ -56,6 +56,8 @@ pub enum After {
 pub enum PathDialog {
     Open,
     SaveAs,
+    Export,
+    ImportOxb,
 }
 
 pub struct Session {
@@ -66,6 +68,12 @@ pub struct Session {
     pub recent: Vec<PathBuf>,
     pub user_dir: PathBuf,
     pub dialog: Option<PathDialog>,
+    /// Menu, shortcut, or "save before closing" asked for a path. The UI
+    /// turns this into a native dialog or the typed fallback.
+    pub dialog_request: Option<PathDialog>,
+    /// Scripted `--dialog` stays on the typed dialog so a screenshot run
+    /// never opens a portal window.
+    pub force_typed: bool,
     pub path_input: String,
     /// Unsaved-changes prompt.
     pub confirm: Option<After>,
@@ -171,6 +179,8 @@ impl Editor {
             recent: Vec::new(),
             user_dir: user_dir.to_owned(),
             dialog: None,
+            dialog_request: None,
+            force_typed: false,
             path_input: String::new(),
             confirm: None,
             after_save: None,
@@ -608,7 +618,7 @@ impl Editor {
                 None => {
                     let s = self.session_mut();
                     s.after_save = Some(after);
-                    s.dialog = Some(PathDialog::SaveAs);
+                    s.dialog_request = Some(PathDialog::SaveAs);
                 }
             },
         }
@@ -620,15 +630,8 @@ impl Editor {
             Some(p) => {
                 self.save_project(&p);
             }
-            None => self.session_mut().dialog = Some(PathDialog::SaveAs),
+            None => self.session_mut().dialog_request = Some(PathDialog::SaveAs),
         }
-    }
-
-    pub fn default_project_path(&self) -> PathBuf {
-        let s = self.session();
-        s.path
-            .clone()
-            .unwrap_or_else(|| s.user_dir.join("projects").join("character.oxyc"))
     }
 
     /// Recover (or discard) the autosave offered at start-up.
@@ -918,6 +921,27 @@ mod tests {
         assert_eq!(ed.worn.len(), 1);
         assert_eq!(ed.worn[0].name, "Wrap");
         assert!((ed.worn[0].settings.tightness - 0.5).abs() < 1e-4);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn save_without_a_path_asks_for_one() {
+        let dir = tmp("ask");
+        let mut ed = editor(&dir);
+        ed.set("nose", 0.2);
+        ed.save_or_ask();
+        assert_eq!(ed.session().dialog_request, Some(PathDialog::SaveAs));
+        assert!(ed.session().dialog.is_none());
+        ed.session_mut().dialog_request = None;
+        ed.request(After::New);
+        ed.resolve_confirm(Some(true));
+        assert_eq!(ed.session().dialog_request, Some(PathDialog::SaveAs));
+        assert_eq!(ed.session().after_save, Some(After::New));
+        assert_eq!(
+            ed.value("nose"),
+            0.2,
+            "the character is unchanged until saved"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

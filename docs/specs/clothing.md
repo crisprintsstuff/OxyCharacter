@@ -1,8 +1,8 @@
 # Clothing and hair
 
-What the user can do. Design notes are in [ADR 0007](../adr/0007-clothing-and-hair.md).
+What the user can do. Design notes are in [ADR 0009](../adr/0009-clothing-and-hair.md).
 
-- The **Wardrobe** tab lists clothes and hair that can be put on the character.
+- The **Wardrobe** shelf (rail icon and chip) lists clothes and hair that can be put on the character.
   Turning one on makes it follow the current body. Changing a body slider
   refits it. Changing the pose deforms it with the skeleton.
 - Each worn item has a way of following the body:
