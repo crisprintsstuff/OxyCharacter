@@ -12,6 +12,14 @@ fail() {
   exit 1
 }
 
+# Globs from the workflow are relative to the repo. Later steps cd away,
+# and a relative AppImage path then does not exist (the shell reports
+# "No such file or directory", exit 127).
+abs_path() {
+  local f="$1"
+  echo "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+}
+
 require_listing() {
   local listing="$1"
   shift
@@ -38,8 +46,8 @@ info_from() {
 
 case "$PLATFORM" in
   linux)
-    tarball="$(echo "$OUT"/OxyCharacter-*-linux-x86_64.tar.gz)"
-    appimage="$(echo "$OUT"/OxyCharacter-*-linux-x86_64.AppImage)"
+    tarball="$(abs_path "$(echo "$OUT"/OxyCharacter-*-linux-x86_64.tar.gz)")"
+    appimage="$(abs_path "$(echo "$OUT"/OxyCharacter-*-linux-x86_64.AppImage)")"
     [[ -f "$tarball" && -f "$appimage" ]] || fail "expected a tar.gz and an AppImage in $OUT"
     listing="$(tar -tzf "$tarball")"
     require_listing "$listing" '/oxycharacter$' '/oxy$' '/makehuman.oxyb$' '/portable$' \
@@ -81,7 +89,7 @@ case "$PLATFORM" in
     fi
     ;;
   macos)
-    dmg="$(echo "$OUT"/OxyCharacter-*-macos-universal.dmg)"
+    dmg="$(abs_path "$(echo "$OUT"/OxyCharacter-*-macos-universal.dmg)")"
     [[ -f "$dmg" ]] || fail "expected a dmg in $OUT"
     mnt="$(mktemp -d)"
     hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
@@ -104,8 +112,8 @@ case "$PLATFORM" in
     info_from "$app/Contents/MacOS/oxy"
     ;;
   windows)
-    zip="$(echo "$OUT"/OxyCharacter-*-windows-x86_64.zip)"
-    setup="$(echo "$OUT"/OxyCharacter-*-windows-x86_64-setup.exe)"
+    zip="$(abs_path "$(echo "$OUT"/OxyCharacter-*-windows-x86_64.zip)")"
+    setup="$(abs_path "$(echo "$OUT"/OxyCharacter-*-windows-x86_64-setup.exe)")"
     [[ -f "$zip" && -f "$setup" ]] || fail "expected a zip and a setup exe in $OUT"
     listing="$(tar -tf "$zip")"
     require_listing "$listing" '/oxycharacter.exe$' '/oxy.exe$' '/makehuman.oxyb$' '/portable$' \
