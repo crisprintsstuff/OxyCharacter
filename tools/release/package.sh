@@ -108,8 +108,13 @@ package_appimage() {
     --desktop-file "$ROOT/tools/release/oxycharacter.desktop" \
     --icon-file "$ROOT/tools/release/oxycharacter.png"
   mkdir -p "$appdir/usr/bin" "$appdir/usr/share/oxycharacter"
-  cp "$WORK/oxy" "$appdir/usr/bin/oxy"
-  chmod +x "$appdir/usr/bin/oxy" "$appdir/usr/bin/oxycharacter"
+  # linuxdeploy's AppRun is often a symlink to the editor. Writing the script
+  # through that link replaces the binary, and the script then execs itself
+  # until the kernel returns "Argument list too long" (exit 126).
+  rm -f "$appdir/usr/bin/oxycharacter" "$appdir/AppRun"
+  cp -a "$WORK/oxycharacter" "$appdir/usr/bin/oxycharacter"
+  cp -a "$WORK/oxy" "$appdir/usr/bin/oxy"
+  chmod +x "$appdir/usr/bin/oxycharacter" "$appdir/usr/bin/oxy"
   copy_shared "$appdir/usr/share/oxycharacter"
   cat > "$appdir/AppRun" << 'EOF'
 #!/bin/sh
@@ -187,7 +192,7 @@ EOF
 }
 
 package_macos() {
-  local app dmg_src dmg
+  local app dmg_src dmg attempt
   app="$WORK/OxyCharacter.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   cp "$WORK/oxycharacter" "$app/Contents/MacOS/oxycharacter"
@@ -201,7 +206,23 @@ package_macos() {
   ln -s /Applications "$dmg_src/Applications"
   dmg="$OUT_DIR/OxyCharacter-${VERSION}-macos-universal.dmg"
   rm -f "$dmg"
-  hdiutil create -volname "OxyCharacter" -srcfolder "$dmg_src" -ov -format UDZO "$dmg"
+  # "Resource busy" is a flake when a volume of this name is still attached.
+  for attempt in 1 2 3 4 5; do
+    if [[ -d /Volumes/OxyCharacter ]]; then
+      hdiutil detach /Volumes/OxyCharacter >/dev/null 2>&1 \
+        || hdiutil detach -force /Volumes/OxyCharacter >/dev/null 2>&1 \
+        || true
+    fi
+    if hdiutil create -volname "OxyCharacter" -srcfolder "$dmg_src" -ov -format UDZO "$dmg"; then
+      break
+    fi
+    if [[ "$attempt" -eq 5 ]]; then
+      echo "hdiutil create failed after ${attempt} attempts" >&2
+      exit 1
+    fi
+    echo "hdiutil create failed (attempt ${attempt}); retrying"
+    sleep $((attempt * 3))
+  done
   rm -rf "$dmg_src"
   "$ROOT/tools/release/sign-macos.sh" notarize "$dmg"
 }
