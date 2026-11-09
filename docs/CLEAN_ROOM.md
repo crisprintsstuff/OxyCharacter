@@ -39,5 +39,7 @@ Process:
 | 2026-11-09 | Godot 4.7.2 glTF importer | MIT engine, test tool only | Same checks, headless | `tools/check-gltf-engines/godot/check.gd` drives the official binary. No Godot source copied |
 | 2026-11-09 | OxyBrush editor mockup supplied with the task (sister application; the image is not committed) | Original design for our sister project | Family chrome: dark panels, blue accent, mode switch, tool rail, shelf, stacked inspector, status bar | Layout and density only. OxyCharacter maps its own editors onto that chrome ([ADR 0008](adr/0008-oxy-family-theme.md)). Icons are original geometry in `theme.rs`. Type is Roboto (Apache-2.0). No commercial UI was consulted for this restyle |
 | 2026-11-09 | Roboto v2.138 (github.com/googlefonts/roboto) | Apache-2.0 | UI typeface | The Regular face is bundled at `assets/fonts/Roboto-Regular.ttf`; the upstream license text is `assets/fonts/LICENSE-ROBOTO`. Not used as a source of icons or layout |
+| 2026-11-09 | Christer Ericson, *Real-Time Collision Detection* (2005), §5.1.5 | Published book | Closest point on a triangle | Algorithm reimplemented from the standard construction; the book was not fetched or copied |
+| 2026-11-09 | Khronos `KHR_materials_anisotropy` (glTF 2.0 extension) | Open standard | Hair-card highlight direction in exports | Extension declared as used, not required; strand texture and cards are original ([ADR 0009](adr/0009-clothing-and-hair.md)) |
 
 Add new rows at the bottom.

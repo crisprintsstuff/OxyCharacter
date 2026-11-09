@@ -3785,6 +3785,7 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "egui",
+ "oxy-fit",
  "oxy-io",
  "oxy-material",
  "oxy-mesh",
@@ -3799,9 +3800,22 @@ dependencies = [
 name = "oxy-cli"
 version = "0.1.0"
 dependencies = [
+ "oxy-fit",
  "oxy-io",
  "oxy-mesh",
  "oxy-morph",
+ "oxy-rig",
+]
+
+[[package]]
+name = "oxy-fit"
+version = "0.1.0"
+dependencies = [
+ "glam 0.29.3",
+ "oxy-mesh",
+ "oxy-rig",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3812,6 +3826,7 @@ dependencies = [
  "glam 0.29.3",
  "gltf",
  "lz4_flex",
+ "oxy-fit",
  "oxy-material",
  "oxy-mesh",
  "oxy-morph",
@@ -3857,6 +3872,7 @@ name = "oxy-project"
 version = "0.1.0"
 dependencies = [
  "glam 0.29.3",
+ "oxy-fit",
  "oxy-io",
  "oxy-mesh",
  "oxy-morph",

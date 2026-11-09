@@ -42,6 +42,14 @@ pub struct Editor {
     pub accessories: Vec<crate::bridge::AccessoryItem>,
     /// Set when accessory meshes must be re-spawned.
     pub accessories_dirty: bool,
+    /// Built-in garments authored on the default body. Filled on first use.
+    pub library: Option<Vec<oxy_fit::AuthoredGarment>>,
+    /// Garments and hair currently worn.
+    pub worn: Vec<crate::clothing::WornGarment>,
+    /// Set when garment meshes must be re-spawned.
+    pub clothing_dirty: bool,
+    /// Body triangles hidden under clothing (base-mesh triangle indices).
+    pub body_hidden: Vec<u32>,
     /// Index into `oxy_rig::pose::PRESETS` (0 = rest pose).
     pub pose: usize,
     pub show_skeleton: bool,
@@ -112,6 +120,10 @@ impl Editor {
             bridge: crate::bridge::Bridge::new(user_dir),
             accessories: Vec::new(),
             accessories_dirty: false,
+            library: None,
+            worn: Vec::new(),
+            clothing_dirty: false,
+            body_hidden: Vec::new(),
             pose: 0,
             show_skeleton: false,
             skeleton_lines: Vec::new(),

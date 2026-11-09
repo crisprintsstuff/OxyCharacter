@@ -4,13 +4,15 @@
 //! oxycharacter [--bundle PATH] [--set id=value ...] [--select "Top/Sub"]
 //!              [--hover PARAM_ID] [--head] [--size WxH]
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
-//!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--iris NAME] [--open FILE.oxyc]
+//!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--wardrobe-tab]
+//!              [--wear tee,pants,hair] [--iris NAME] [--open FILE.oxyc]
 //!              [--save-as FILE.oxyc] [--close]
 //!              [--dialog open|save|export|import]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
 mod bridge;
+mod clothing;
 mod document;
 mod editor;
 mod file_dialog;
@@ -19,6 +21,7 @@ mod scene;
 mod shell;
 mod theme;
 mod ui;
+mod wardrobe_ui;
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -56,6 +59,8 @@ struct Args {
     skeleton: bool,
     pose_tab: bool,
     material_tab: bool,
+    wardrobe_tab: bool,
+    wear: Option<String>,
     iris: Option<String>,
     open: Option<PathBuf>,
     save_as: Option<PathBuf>,
@@ -101,6 +106,8 @@ fn parse_args() -> Result<Args, String> {
             "--skeleton" => a.skeleton = true,
             "--pose-tab" => a.pose_tab = true,
             "--material-tab" => a.material_tab = true,
+            "--wardrobe-tab" => a.wardrobe_tab = true,
+            "--wear" => a.wear = Some(val()?),
             "--iris" => a.iris = Some(val()?),
             "--open" => a.open = Some(val()?.into()),
             "--save-as" => a.save_as = Some(val()?.into()),
@@ -180,12 +187,7 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
         return;
     };
     let ed = &mut *editor;
-    let accessories: Vec<oxy_io::oxybrush::Accessory> = ed
-        .accessories
-        .iter()
-        .filter(|a| a.visible)
-        .map(|a| a.acc.clone())
-        .collect();
+    let (accessories, worn, hidden) = ed.clothing_export();
     let opts = oxy_io::export::ExportOptions {
         skin_color: ed.skin,
         ..ed.export.clone()
@@ -200,6 +202,8 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
             &accessories,
             &ed.material,
             &opts,
+            &worn,
+            &hidden,
             BufWriter::new(File::create(&path)?),
         )
     })();
@@ -276,6 +280,18 @@ fn main() -> ExitCode {
         }
     }
     editor.show_skeleton = args.skeleton;
+    if let Some(spec) = &args.wear {
+        editor.wear_specs(spec);
+        // A scripted `--wear` with no project is the starting document, not an
+        // unsaved edit. Wearing on top of `--open` stays an edit.
+        if args.open.is_none() {
+            let snap = editor.snapshot();
+            if let Some(s) = editor.session.as_mut() {
+                s.history.reset(snap.clone());
+                s.saved = snap;
+            }
+        }
+    }
     if let Some(name) = &args.iris {
         match ui::IRIS_PRESETS
             .iter()
@@ -341,6 +357,11 @@ fn main() -> ExitCode {
             } else {
                 ui::RightMode::Morph
             },
+            left_tab: if args.wardrobe_tab {
+                ui::LeftTab::Wardrobe
+            } else {
+                ui::LeftTab::Presets
+            },
             ..Default::default()
         })
         .insert_resource(Automation {
@@ -368,6 +389,7 @@ fn main() -> ExitCode {
                 bridge::watch,
                 bridge::file_drop,
                 scene::sync_accessories,
+                scene::sync_clothing,
                 scene::draw_floor,
                 scene::draw_skeleton,
                 look::bake_textures,

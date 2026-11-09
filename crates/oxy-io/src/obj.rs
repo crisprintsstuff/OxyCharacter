@@ -41,6 +41,30 @@ fn index(t: &str, len: usize) -> Option<u32> {
     u32::try_from(i).ok()
 }
 
+/// Triangulate an OBJ into a garment mesh. Texture v is flipped to glTF's
+/// convention (origin top-left).
+pub fn to_garment(src: &str, file: &str) -> Result<oxy_fit::GarmentMesh> {
+    let obj = parse(src, file)?;
+    let faces: Vec<Vec<u32>> = obj.faces.iter().map(|(v, _)| v.clone()).collect();
+    let uvs: Vec<Vec<[f32; 2]>> = obj
+        .face_uvs
+        .iter()
+        .map(|idx| {
+            idx.iter()
+                .map(|&i| {
+                    let uv = obj.uvs.get(i as usize).copied().unwrap_or([0.0, 0.0]);
+                    [uv[0], 1.0 - uv[1]]
+                })
+                .collect()
+        })
+        .collect();
+    Ok(oxy_fit::GarmentMesh::from_polygons(
+        obj.positions,
+        &faces,
+        &uvs,
+    ))
+}
+
 pub fn parse(src: &str, file: &str) -> Result<ObjData> {
     let mut out = ObjData::default();
     let mut current = 0usize;

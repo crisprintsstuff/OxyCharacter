@@ -3,7 +3,8 @@
 //! ```text
 //! oxy import-makehuman <makehuman/data dir> <out.oxyb>
 //! oxy info <bundle.oxyb>
-//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--accessory FILE.obj] [param=value ...]
+//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...]
+//! oxy wardrobe <bundle.oxyb>
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
 //! ```
@@ -15,7 +16,9 @@ use std::time::Instant;
 
 use std::path::Path;
 
-use oxy_io::{bundle, export, makehuman, oxb, oxybrush, CharacterAsset};
+use oxy_fit::{author_builtins, bind, fit, occlusion, transfer_weights, CoverMesh, FitMethod};
+use oxy_io::export::WornMesh;
+use oxy_io::{bundle, export, makehuman, obj, oxb, oxybrush, CharacterAsset};
 
 fn load(path: &str) -> Result<CharacterAsset, String> {
     bundle::read(BufReader::new(
@@ -110,10 +113,31 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        ["wardrobe", path] => {
+            let a = load(path)?;
+            let ev = a.evaluate_full(&a.catalog.defaults());
+            let names = a.rig.as_ref().map(|r| r.bones.iter().map(|b| b.name.clone()).collect::<Vec<_>>());
+            let items = author_builtins(&ev.body, &a.mesh.base.indices, a.rig.as_ref().map(|r| r.skin.as_slice()), names.as_deref());
+            if items.is_empty() {
+                println!("no built-in garments for this body");
+            }
+            for g in items {
+                println!(
+                    "{}\t{}\t{:?}\t{:?}\t{} verts",
+                    g.id,
+                    g.name,
+                    g.kind,
+                    g.settings.method,
+                    g.mesh.positions.len()
+                );
+            }
+        }
         ["export", path, out, rest @ ..] => {
             let mut a = load(path)?;
             let mut opts = export::ExportOptions::default();
             let mut params = Vec::new();
+            let mut wear = None;
+            let mut wardrobe = None;
             let mut accessories = Vec::new();
             let mut it = rest.iter();
             while let Some(arg) = it.next() {
@@ -126,6 +150,8 @@ fn run(args: &[String]) -> Result<(), String> {
                     "--texture-size" => {
                         opts.texture_size = it.next().and_then(|v| v.parse().ok()).ok_or("--texture-size needs a number")?;
                     }
+                    "--wear" => wear = Some(it.next().ok_or("--wear needs a list, e.g. tee,pants,hair")?),
+                    "--wardrobe" => wardrobe = Some(it.next().ok_or("--wardrobe needs a folder")?),
                     "--morphs" => {
                         let dir = it.next().ok_or("--morphs needs a folder")?;
                         let (morphs, errors) = oxybrush::load_custom_morphs(Path::new(dir), a.mesh.base.vertex_count());
@@ -146,15 +172,161 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
             let values = parse_params(&a, &params)?;
+            let (worn, hidden) = assemble_clothing(&a, &values, wear.copied(), wardrobe.copied())?;
             let f = File::create(out).map_err(|e| format!("{out}: {e}"))?;
-            let st = export::character_glb(&a, &values, &accessories, &Default::default(), &opts, BufWriter::new(f)).map_err(|e| e.to_string())?;
-            println!("wrote {out}: {} mesh(es), {} bones, {} blendshape(s), {} texture(s)", st.meshes, st.bones, st.blendshapes, st.textures);
+            let st = export::character_glb(&a, &values, &accessories, &Default::default(), &opts, &worn, &hidden, BufWriter::new(f)).map_err(|e| e.to_string())?;
+            println!(
+                "wrote {out}: {} mesh(es), {} bones, {} blendshape(s), {} texture(s), {} hidden body triangle(s)",
+                st.meshes, st.bones, st.blendshapes, st.textures, hidden.len()
+            );
         }
         _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--accessory FILE.obj] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
         }
     }
     Ok(())
+}
+
+/// Built-ins are authored on the default body and fitted to `params`.
+/// `--wear` is `id` or `id:tightness`, comma-separated. `--wardrobe` is a
+/// package folder.
+fn assemble_clothing(
+    asset: &CharacterAsset,
+    params: &oxy_morph::Params,
+    wear: Option<&str>,
+    wardrobe: Option<&str>,
+) -> Result<(Vec<WornMesh>, Vec<u32>), String> {
+    let base = asset.evaluate_full(&asset.catalog.defaults());
+    let shaped = asset.evaluate_full(params);
+    let names = asset
+        .rig
+        .as_ref()
+        .map(|r| r.bones.iter().map(|b| b.name.clone()).collect::<Vec<_>>());
+    let skin = asset.rig.as_ref().map(|r| r.skin.as_slice());
+    let indices = &asset.mesh.base.indices;
+    let authored = author_builtins(&base.body, indices, skin, names.as_deref());
+    let mut selected: Vec<(String, Option<f32>)> = Vec::new();
+    if let Some(spec) = wear {
+        for part in spec.split(',').filter(|s| !s.is_empty()) {
+            let (id, tight) = part
+                .split_once(':')
+                .map(|(i, t)| (i.trim(), t.parse::<f32>().ok()))
+                .unwrap_or((part.trim(), None));
+            if tight.is_none() && part.contains(':') {
+                return Err(format!("bad tightness in {part}"));
+            }
+            selected.push((id.to_string(), tight));
+        }
+    }
+    struct Piece {
+        name: String,
+        positions: Vec<oxy_io::glam::Vec3>,
+        indices: Vec<u32>,
+        uvs: Vec<[f32; 2]>,
+        skin: Option<Vec<oxy_rig::Influence>>,
+        color: [f32; 3],
+        hair: bool,
+        layer: u16,
+        hide_body: bool,
+        cover: f32,
+    }
+    let mut pieces = Vec::new();
+    for (id, tight) in &selected {
+        let Some(g) = authored.iter().find(|g| g.id == id) else {
+            let known: Vec<_> = authored.iter().map(|g| g.id).collect();
+            return Err(format!("unknown garment {id}; built-ins: {known:?}"));
+        };
+        let mut settings = g.settings.clone();
+        if let Some(t) = tight {
+            settings.tightness = t.clamp(0.0, 1.0);
+        }
+        let positions = if settings.method == FitMethod::Rigid {
+            g.mesh.positions.clone()
+        } else {
+            fit(&shaped.body, indices, &[], &g.mesh, &g.binding, &settings)
+        };
+        pieces.push(Piece {
+            name: g.name.to_string(),
+            indices: g.mesh.flat_indices(),
+            uvs: g.mesh.uvs.clone(),
+            skin: (!g.skin.is_empty()).then(|| g.skin.clone()),
+            color: g.color,
+            hair: g.kind == oxy_fit::ItemKind::Hair,
+            layer: settings.layer,
+            hide_body: settings.hide_body,
+            cover: settings.cover,
+            positions,
+        });
+    }
+    if let Some(dir) = wardrobe {
+        let dir = std::path::Path::new(dir);
+        let manifest = oxy_fit::Manifest::from_json(
+            &std::fs::read(dir.join("manifest.json")).map_err(|e| e.to_string())?,
+        )?;
+        for item in manifest.items {
+            let path = dir.join(&item.file);
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let mesh =
+                obj::to_garment(&text, &path.display().to_string()).map_err(|e| e.to_string())?;
+            let binding = bind(&base.body, indices, &[], &mesh.positions);
+            let weights = skin.map(|s| transfer_weights(s, &binding, indices, &mesh.neighbors, 6));
+            let positions = if item.settings.method == FitMethod::Rigid {
+                mesh.positions.clone()
+            } else {
+                fit(&shaped.body, indices, &[], &mesh, &binding, &item.settings)
+            };
+            pieces.push(Piece {
+                name: item.name,
+                indices: mesh.flat_indices(),
+                uvs: mesh.uvs,
+                skin: weights,
+                color: [0.22, 0.24, 0.28],
+                hair: item.kind == oxy_fit::ItemKind::Hair,
+                layer: item.settings.layer,
+                hide_body: item.settings.hide_body,
+                cover: item.settings.cover,
+                positions,
+            });
+        }
+    }
+    let normals: Vec<Vec<oxy_io::glam::Vec3>> = pieces
+        .iter()
+        .map(|p| {
+            oxy_mesh::Mesh::new(p.positions.clone(), p.indices.clone())
+                .map(|m| m.compute_normals(&p.positions))
+                .unwrap_or_else(|_| vec![oxy_io::glam::Vec3::Y; p.positions.len()])
+        })
+        .collect();
+    let body_normals = asset.mesh.base.compute_normals(&shaped.body);
+    let covers: Vec<CoverMesh<'_>> = pieces
+        .iter()
+        .zip(&normals)
+        .map(|(p, n)| CoverMesh {
+            positions: &p.positions,
+            indices: &p.indices,
+            normals: n,
+            layer: p.layer,
+            hide_body: p.hide_body,
+            cover: p.cover,
+        })
+        .collect();
+    let (hidden, per) = occlusion(&shaped.body, &body_normals, indices, &covers);
+    let worn = pieces
+        .into_iter()
+        .zip(per)
+        .map(|(p, self_hidden)| WornMesh {
+            name: p.name,
+            positions: p.positions,
+            indices: oxy_fit::without_triangles(&p.indices, &self_hidden),
+            uvs: p.uvs,
+            skin: p.skin,
+            base_color: [p.color[0], p.color[1], p.color[2], 1.0],
+            hair: p.hair,
+            double_sided: true,
+        })
+        .collect();
+    Ok((worn, hidden))
 }
 
 /// OBJ mesh as an accessory. Faces are fan-triangulated; the file stem is the name.

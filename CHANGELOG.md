@@ -6,13 +6,23 @@ development branch. The project has not made a release yet.
 ## [Unreleased] — 0.1.0
 
 ### Added
+- **Clothing and hair (M5):** `oxy-fit` binds garments to the body and refits
+  them when it changes (surface fit, loose radial-basis fit, push-out,
+  tightness); smoothed skin-weight transfer; hide-under masks, including a
+  higher layer hiding a lower one. Wardrobe shelf (rail icon and chip) with
+  original T-shirt, trousers, skirt and hair cards (procedural strand
+  texture). Wardrobe packages (`manifest.json` + OBJ). OxyBrush pieces that
+  sit on the body are fitted. Projects store items, fit settings and hidden
+  triangles; glTF export includes them skinned, with hair alpha and
+  `KHR_materials_anisotropy`. `oxy wardrobe`, `oxy export --wear` /
+  `--wardrobe`. See [ADR 0009](docs/adr/0009-clothing-and-hair.md).
 - **Editor chrome:** the window follows the Oxy family layout (dark panels, blue
   accent, rounded cards) from `crates/oxy-app/src/theme.rs`, so it can stay in
   step with OxyBrush. Morph, Material, Pose and Export are a centered mode
-  switch; presets, skin tones and accessories sit on a bottom shelf; morph
-  categories and sliders stack on the right; mesh stats and the OxyBrush link
-  sit in the status bar. The typed-path file dialog uses the same theme. The
-  UI face is Roboto (Apache-2.0); icons are original geometry. See
+  switch; presets, skin tones, wardrobe and accessories sit on a bottom shelf;
+  morph categories and sliders stack on the right; mesh stats and the OxyBrush
+  link sit in the status bar. The typed-path file dialog uses the same theme.
+  The UI face is Roboto (Apache-2.0); icons are original geometry. See
   [ADR 0008](docs/adr/0008-oxy-family-theme.md).
 - **Native file dialogs.** Open, Save as, glTF export and Import .oxb use the
   system file chooser (the `rfd` crate, polled asynchronously so the editor

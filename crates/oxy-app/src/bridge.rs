@@ -24,6 +24,8 @@ pub struct PendingImport {
     pub path: PathBuf,
     pub items: Vec<PendingItem>,
     pub notes: Vec<String>,
+    /// Body the pieces were modelled on (grounded), for fitting accessories.
+    pub reference: Vec<oxy_io::glam::Vec3>,
 }
 
 pub struct AccessoryItem {
@@ -31,6 +33,27 @@ pub struct AccessoryItem {
     pub visible: bool,
     /// Bone influences transferred from the body (computed on first pose).
     pub influences: Option<Vec<oxy_rig::Influence>>,
+    /// Rigid by default (a prop). Surface/loose when the mesh sits on the body.
+    pub settings: oxy_fit::FitSettings,
+    pub binding: Option<oxy_fit::GarmentBind>,
+    /// Fitted rest-pose positions. `None` keeps `acc.positions` (rigid).
+    pub fitted: Option<Vec<oxy_io::glam::Vec3>>,
+    /// Body triangles this accessory hides.
+    pub hidden_body: Vec<u32>,
+}
+
+impl AccessoryItem {
+    pub fn new(acc: Accessory, visible: bool) -> Self {
+        Self {
+            acc,
+            visible,
+            influences: None,
+            settings: oxy_fit::FitSettings::rigid(),
+            binding: None,
+            fitted: None,
+            hidden_body: Vec::new(),
+        }
+    }
 }
 
 pub struct Bridge {
@@ -226,6 +249,7 @@ impl Editor {
             path: path.to_owned(),
             items: pending,
             notes,
+            reference,
         });
     }
 
@@ -269,11 +293,17 @@ impl Editor {
                 Imported::Accessory(mut a) => {
                     a.name = it.name;
                     self.accessories.retain(|x| x.acc.name != a.name);
-                    self.accessories.push(AccessoryItem {
-                        acc: a,
-                        visible: true,
-                        influences: None,
-                    });
+                    let (settings, binding, influences) = crate::clothing::accessory_fit(
+                        &a,
+                        &p.reference,
+                        &self.asset.mesh.base.indices,
+                        self.asset.rig.as_ref().map(|r| r.skin.as_slice()),
+                    );
+                    let mut item = AccessoryItem::new(a, true);
+                    item.settings = settings;
+                    item.binding = binding;
+                    item.influences = influences;
+                    self.accessories.push(item);
                     accs += 1;
                 }
                 Imported::Unchanged { .. } => {}

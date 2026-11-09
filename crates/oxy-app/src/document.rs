@@ -10,7 +10,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use oxy_io::oxybrush::{CustomMorph, CUSTOM_PREFIX};
 use oxy_morph::Params;
-use oxy_project::{AccessoryEntry, BaseRef, History, Project};
+use oxy_project::{AccessoryEntry, BaseRef, History, Project, WardrobeEntry};
 
 use crate::bridge::AccessoryItem;
 use crate::editor::Editor;
@@ -19,6 +19,7 @@ use crate::editor::Editor;
 pub struct Content {
     pub custom: Vec<CustomMorph>,
     pub accessories: Vec<AccessoryEntry>,
+    pub wardrobe: Vec<WardrobeEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -136,11 +137,25 @@ fn content_key(ed: &Editor) -> Vec<String> {
             .first()
             .map_or([0; 3], |p| p.to_array().map(f32::to_bits));
         k.push(format!(
-            "a:{}:{}:{}:{}:{first:?}",
+            "a:{}:{}:{}:{}:{first:?}:{:?}:{}",
             a.acc.name,
             a.visible,
             a.acc.positions.len(),
-            a.acc.triangles.len()
+            a.acc.triangles.len(),
+            a.settings.method,
+            a.settings.tightness
+        ));
+    }
+    for w in &ed.worn {
+        k.push(format!(
+            "w:{}:{}:{:?}:{}:{}:{:?}:{}",
+            w.id,
+            w.settings.visible,
+            w.settings.method,
+            w.settings.tightness,
+            w.settings.hide_body,
+            w.color.map(f32::to_bits),
+            w.mesh.positions.len()
         ));
     }
     k
@@ -221,8 +236,11 @@ impl Editor {
                     .map(|a| AccessoryEntry {
                         mesh: a.acc.clone(),
                         visible: a.visible,
+                        settings: a.settings.clone(),
+                        binding: a.binding.clone(),
                     })
                     .collect(),
+                wardrobe: self.worn.iter().map(|w| w.to_entry()).collect(),
             }),
         }
     }
@@ -304,9 +322,21 @@ impl Editor {
                     acc: e.mesh.clone(),
                     visible: e.visible,
                     influences: None,
+                    settings: e.settings.clone(),
+                    binding: e.binding.clone(),
+                    fitted: None,
+                    hidden_body: Vec::new(),
                 })
                 .collect();
             self.accessories_dirty = true;
+            let wardrobe = state.content.wardrobe.clone();
+            let worn = wardrobe
+                .iter()
+                .filter_map(|e| self.worn_from_entry(e))
+                .collect();
+            self.worn = worn;
+            self.clothing_dirty = true;
+            self.body_hidden.clear();
             if let Some(s) = self.session.as_mut() {
                 s.cache = Some((state.key.clone(), state.content.clone()));
             }
@@ -336,11 +366,20 @@ impl Editor {
         if a.key != b.key {
             let (ma, mb) = (a.content.custom.len(), b.content.custom.len());
             let (aa, ab) = (a.content.accessories.len(), b.content.accessories.len());
-            return match (mb.cmp(&ma), ab.cmp(&aa)) {
-                (std::cmp::Ordering::Greater, _) => "Add sculpted morph".into(),
-                (std::cmp::Ordering::Less, _) => "Delete sculpted morph".into(),
-                (_, std::cmp::Ordering::Greater) => "Add accessory".into(),
-                (_, std::cmp::Ordering::Less) => "Remove accessory".into(),
+            let (wa, wb) = (a.content.wardrobe.len(), b.content.wardrobe.len());
+            return match (mb.cmp(&ma), ab.cmp(&aa), wb.cmp(&wa)) {
+                (std::cmp::Ordering::Greater, _, _) => "Add sculpted morph".into(),
+                (std::cmp::Ordering::Less, _, _) => "Delete sculpted morph".into(),
+                (_, _, std::cmp::Ordering::Greater) => b
+                    .content
+                    .wardrobe
+                    .last()
+                    .map(|w| format!("Wear {}", w.name))
+                    .unwrap_or_else(|| "Wear clothing".into()),
+                (_, _, std::cmp::Ordering::Less) => "Remove clothing".into(),
+                (_, std::cmp::Ordering::Greater, _) => "Add accessory".into(),
+                (_, std::cmp::Ordering::Less, _) => "Remove accessory".into(),
+                _ if a.content.wardrobe != b.content.wardrobe => "Clothing fit".into(),
                 _ => "Change accessories".into(),
             };
         }
@@ -401,6 +440,9 @@ impl Editor {
             .cloned()
             .collect();
         p.accessories = snap.content.accessories.clone();
+        // Masks are derived. Take them from the fitted garments, which the
+        // snapshot's cached content may not have refreshed.
+        p.wardrobe = self.worn.iter().map(|w| w.to_entry()).collect();
         p
     }
 
@@ -439,8 +481,8 @@ impl Editor {
                 return false;
             }
         };
-        let notes = project.reconcile(&self.asset);
-        self.apply_project(&project);
+        let mut notes = project.reconcile(&self.asset);
+        notes.extend(self.apply_project(&project));
         let snap = self.snapshot();
         let s = self.session_mut();
         s.history.reset(snap.clone());
@@ -452,7 +494,7 @@ impl Editor {
         true
     }
 
-    fn apply_project(&mut self, project: &Project) {
+    fn apply_project(&mut self, project: &Project) -> Vec<String> {
         let mut params = self.asset.catalog.defaults();
         let custom_ids: Vec<String> = project
             .custom_morphs
@@ -480,13 +522,22 @@ impl Editor {
             content: Arc::new(Content {
                 custom,
                 accessories: project.accessories.clone(),
+                wardrobe: project.wardrobe.clone(),
             }),
         };
         self.restore(&state);
+        let mut missed = Vec::new();
+        if self.worn.len() != project.wardrobe.len() {
+            missed.push(format!(
+                "{} clothing item(s) could not be rebuilt for this body and were skipped.",
+                project.wardrobe.len() - self.worn.len()
+            ));
+        }
         // `restore` keyed the cache with the placeholder; recompute it.
         if let Some(s) = self.session.as_mut() {
             s.cache = None;
         }
+        missed
     }
 
     /// Start a new, default character.
@@ -501,6 +552,7 @@ impl Editor {
             content: Arc::new(Content {
                 custom: self.custom_morphs_now(),
                 accessories: Vec::new(),
+                wardrobe: Vec::new(),
             }),
         };
         self.restore(&fresh);
@@ -589,8 +641,8 @@ impl Editor {
         };
         if recover {
             if let Ok(mut p) = Project::load(&path) {
-                let notes = p.reconcile(&self.asset);
-                self.apply_project(&p);
+                let mut notes = p.reconcile(&self.asset);
+                notes.extend(self.apply_project(&p));
                 let snap = self.snapshot();
                 let s = self.session_mut();
                 s.history.reset(snap);
@@ -747,16 +799,15 @@ mod tests {
             deltas: vec![Vec3::Y * 0.1],
         });
         ed.set("custom/brow", 1.0);
-        ed.accessories.push(AccessoryItem {
-            acc: Accessory {
+        ed.accessories.push(AccessoryItem::new(
+            Accessory {
                 name: "Hat".into(),
                 positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
                 triangles: vec![[0, 1, 2]],
                 color: vec![],
             },
-            visible: false,
-            influences: None,
-        });
+            false,
+        ));
         ed.skin = [0.3, 0.2, 0.1];
         ed.set_pose(1);
         ed.export.blendshapes = true;
@@ -823,6 +874,53 @@ mod tests {
         let mut third = editor(&dir);
         third.resolve_recover(false);
         assert!(!third.session().autosave_path().exists());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn clothing_is_undoable_and_round_trips() {
+        let dir = tmp("wear");
+        let mut ed = editor(&dir);
+        let positions = vec![Vec3::new(0.1, 0.2, 0.05), Vec3::X, Vec3::Y];
+        let mesh = oxy_fit::GarmentMesh::from_parts(positions.clone(), vec![[0, 1, 2]], vec![]);
+        let binding = oxy_fit::bind(
+            &ed.asset.mesh.base.positions,
+            &ed.asset.mesh.base.indices,
+            &[],
+            &mesh.positions,
+        );
+        ed.worn.push(crate::clothing::WornGarment {
+            id: "wrap".into(),
+            name: "Wrap".into(),
+            kind: oxy_fit::ItemKind::Garment,
+            builtin: None,
+            color: [0.2, 0.3, 0.4],
+            fitted: positions,
+            settings: oxy_fit::FitSettings::surface(1),
+            skin: vec![],
+            hidden_body: vec![0],
+            hidden_self: vec![],
+            mesh,
+            binding,
+        });
+        ed.commit_history();
+        assert_eq!(ed.session().history.undo_label(), Some("Wear Wrap"));
+        let path = dir.join("hero.oxyc");
+        assert!(ed.save_project(&path));
+        let saved = Project::load(&path).unwrap();
+        assert_eq!(saved.wardrobe[0].hidden_tris, vec![0]);
+        assert!(saved.wardrobe[0].mesh.is_some());
+        assert!(saved.wardrobe[0].builtin.is_none());
+        ed.undo();
+        assert!(ed.worn.is_empty(), "undo removes the garment");
+        ed.redo();
+        assert_eq!(ed.worn.len(), 1);
+        ed.new_document();
+        assert!(ed.worn.is_empty());
+        assert!(ed.open_project(&path));
+        assert_eq!(ed.worn.len(), 1);
+        assert_eq!(ed.worn[0].name, "Wrap");
+        assert!((ed.worn[0].settings.tightness - 0.5).abs() < 1e-4);
         std::fs::remove_dir_all(dir).ok();
     }
 

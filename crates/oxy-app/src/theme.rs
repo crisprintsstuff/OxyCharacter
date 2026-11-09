@@ -264,6 +264,8 @@ pub enum Icon {
     Frame,
     /// Head, used to frame the head.
     Head,
+    /// Shirt: wardrobe / clothing shelf.
+    Wardrobe,
 }
 
 pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -501,6 +503,40 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
                 c + Vec2::new(s * 0.2, s * 0.32),
             );
             painter.rect_stroke(bin, CornerRadius::same(1), stroke, StrokeKind::Inside);
+        }
+        Icon::Wardrobe => {
+            // Torso, neck opening and two short sleeves. Original geometry.
+            let torso =
+                Rect::from_center_size(c + Vec2::new(0.0, s * 0.08), Vec2::new(s * 0.4, s * 0.58));
+            painter.rect_stroke(torso, CornerRadius::same(2), stroke, StrokeKind::Inside);
+            painter.line_segment(
+                [
+                    torso.left_top() + Vec2::new(0.0, s * 0.1),
+                    c + Vec2::new(-s * 0.4, -s * 0.02),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    torso.right_top() + Vec2::new(0.0, s * 0.1),
+                    c + Vec2::new(s * 0.4, -s * 0.02),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    torso.center_top() + Vec2::new(-s * 0.08, 0.0),
+                    torso.center_top() + Vec2::new(0.0, s * 0.12),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    torso.center_top() + Vec2::new(s * 0.08, 0.0),
+                    torso.center_top() + Vec2::new(0.0, s * 0.12),
+                ],
+                stroke,
+            );
         }
     }
 }
@@ -868,6 +904,7 @@ mod tests {
                 Icon::Trash,
                 Icon::Frame,
                 Icon::Head,
+                Icon::Wardrobe,
             ] {
                 paint_icon(ui.painter(), rect, icon, TEXT);
             }

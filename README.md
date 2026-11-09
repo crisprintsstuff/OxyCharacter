@@ -44,7 +44,8 @@ The window uses the same dark chrome as OxyBrush: a menu and a centered
 the viewport, a stacked inspector, a bottom shelf and a status bar.
 
 - **Shelf:** body presets (procedural silhouette cards), skin-tone swatches
-  plus a custom color, and OxyBrush accessories. The rail opens the same pages.
+  plus a custom color, the **wardrobe** (clothing and hair) and OxyBrush
+  accessories. The rail opens the same pages.
 - **Viewport:** orbit (LMB), pan (RMB/MMB), zoom (wheel). Mesh stats sit in the
   status bar. Hovering or dragging a slider tints the region it affects.
 - **Morph:** search (top bar), category tabs with modified counts, sliders with
@@ -52,7 +53,7 @@ the viewport, a stacked inspector, a bottom shelf and a status bar.
   (the X axis). Double-click resets a slider. "Modified" hides untouched sliders.
 - **Material, Pose, Export:** the other modes. Reset, randomize and framing stay
   on the rail and the menus. Export asks for a `.glb` path (the suggestion is
-  `exports/<project>.glb`).
+  `exports/<project>.glb`) and includes whatever is worn.
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
@@ -68,11 +69,43 @@ embed the baked textures (1024–4096 px) and pass the glTF validator.
 
 ![Material tab with procedural skin and blue eyes](docs/images/material-head.png)
 
+## Clothing and hair
+
+The **Wardrobe** page (rail icon, and the chip on the shelf) puts clothes and hair on the character. A T-shirt,
+trousers, a skirt and hair are generated from the body (nothing is downloaded
+for them). They **refit when the body changes** and **skin with the skeleton**
+when you pose.
+
+- **Fit** keeps a gap off the skin. **Loose** (the skirt) follows the body's
+  overall shape instead of hugging the legs. **Hold** does not refit.
+- **Tightness** pulls an item in or lets it stand off. The middle is the
+  shape it was made at.
+- **Hide body underneath** drops body triangles that sit fully under the
+  item. A shirt on top of trousers hides the waistband where they overlap.
+- Hair is a set of cards with a strand texture. Pick a colour from the
+  swatches.
+- **Load package** reads a folder of `manifest.json` plus OBJ meshes.
+  Pieces that come back from OxyBrush are fitted when they sit on the body,
+  and left as props when they don't.
+
+Worn items are saved in the project and undo with everything else. Export
+includes them as skinned meshes; hair keeps its strand texture.
+
+```sh
+oxycharacter --wardrobe-tab --wear tee,pants,hair --screenshot dressed.png --frames 40
+oxy wardrobe assets/generated/makehuman.oxyb
+oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpose
+```
+
+![T-shirt, trousers and hair](docs/images/wardrobe-full.png)
+
+![The same clothes in the wave pose](docs/images/wardrobe-pose.png)
+
 ## Projects, undo and autosave
 
 - **File › New / Open / Open recent / Save / Save as** — projects are small,
   human-readable JSON files (`.oxyc`): only the sliders you changed, skin,
-  pose and export options, plus any sculpted morphs and accessories, so a
+  pose and export options, plus any sculpted morphs, worn clothing and accessories, so a
   project is self-contained. A fingerprint of the base mesh guards against
   opening a project on a different body (sculpts are then skipped with a note).
 - **Undo / redo** for every edit; a slider drag is one step.
@@ -113,7 +146,8 @@ back from OxyBrush.
   glTF options.
 - **Export (.glb)**: skeleton + skin weights (4 per vertex), bind pose
   *Rest* or *T-pose*, sculpted morphs baked or as named **blendshapes**,
-  accessories skinned by nearest-vertex weight transfer.
+  clothing and hair fitted to the body, accessories skinned with the
+  skeleton (fitted pieces follow the body; props use the nearest vertex).
 
 ![Wave pose with the skeleton overlay](docs/images/pose-wave-skeleton.png)
 
@@ -131,6 +165,7 @@ nodes that contain `.` (`eye.L` → `eye_L`) and keeps the bone names
 ```sh
 oxy export assets/generated/makehuman.oxyb hero.glb --tpose --texture-size 2048 gender=1 muscle=0.7
 oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/morphs
+oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpose
 oxy export assets/generated/makehuman.oxyb hero.glb --accessory hat.obj
 ```
 
@@ -146,7 +181,9 @@ through its native `.oxb` project files: no export/import dance, no shared code.
 3. OxyCharacter notices the save and shows **Import from OxyBrush**:
    - the reshaped **body becomes a morph slider** under *Custom › Sculpted*
      (saved to `user/morphs/` and reloaded on start; 🗑 deletes it);
-   - **new pieces become accessories** (shelf → *Accessories*), exported with the body.
+   - **new pieces become accessories** (shelf → *Accessories*). A piece that
+     sits on the body is fitted to later shape changes; one held away only
+     follows the skeleton. Both export with the body.
 
 You can also import any `.oxb` with **Import .oxb** or by dropping it on the window.
 
@@ -160,6 +197,8 @@ the fallback. Sculpting on
 morph; detail finer than the base mesh stays in OxyBrush for now. Remeshing or
 destructive subdivision changes the topology, so such a body can only come
 back as a separate mesh. See [ADR 0004](docs/adr/0004-oxybrush-bridge.md).
+
+The two shots below are from the earlier OxyBrush bridge session. OxyBrush is not in this environment, so they still show the window chrome from before the family restyle.
 
 ![A sculpt coming back from OxyBrush](docs/images/oxybrush-live-loop.png)
 
@@ -182,7 +221,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | M2 rigged & exportable (skeleton refit, poses, skinned glTF, T-pose bind, blendshapes) | ✅ |
 | M3 project files, undo/redo, autosave & recovery | ✅ |
 | M4 materials (UVs, procedural skin, eyes, textured glTF) | ✅ |
-| M5 clothing & hair | next |
+| M5 clothing & hair (fit, hide-under, hair cards, export) | ✅ |
 
 | Crate | What it does |
 |---|---|
@@ -192,6 +231,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
 | `oxy-material` | UV rasterizer, 3D noise, layer stack, skin regions from bone weights, texture encoding, eyeballs + iris |
 | `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |
+| `oxy-fit` | Clothing and hair: bind, refit, loose radial-basis fit, weight transfer, hide-under |
 | `oxy-cli` | `oxy` command-line tool |
 | `oxy-app` | Bevy + egui editor (`oxycharacter`) |
 

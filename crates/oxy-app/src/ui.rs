@@ -31,6 +31,12 @@ pub struct UiState {
     pub material_section: MaterialSection,
     pub help_open: bool,
     pub about_open: bool,
+    /// Folder typed into the wardrobe shelf (not the shared file dialog).
+    pub package_path: String,
+    /// Which wardrobe item the shelf is editing.
+    pub wardrobe_focus: Option<String>,
+    /// Which accessory card the shelf is editing.
+    pub accessory_focus: Option<usize>,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
@@ -62,6 +68,7 @@ pub enum LeftTab {
     Presets,
     Skin,
     Accessories,
+    Wardrobe,
 }
 
 /// Sub-sections of the Material mode inspector.
@@ -79,11 +86,15 @@ pub(crate) fn draw_shelf(
     ed: &mut Editor,
     tab: LeftTab,
     filter: &mut Option<&'static str>,
+    package_path: &mut String,
+    wardrobe_focus: &mut Option<String>,
+    accessory_focus: &mut Option<usize>,
 ) {
     match tab {
         LeftTab::Presets => presets_shelf(ui, ed, filter),
         LeftTab::Skin => skin_shelf(ui, ed),
-        LeftTab::Accessories => accessories_shelf(ui, ed),
+        LeftTab::Accessories => accessories_shelf(ui, ed, accessory_focus),
+        LeftTab::Wardrobe => crate::wardrobe_ui::shelf(ui, ed, package_path, wardrobe_focus),
     }
 }
 
@@ -273,11 +284,36 @@ fn custom_tone(ui: &mut egui::Ui, ed: &mut Editor) {
     });
 }
 
-fn accessories_shelf(ui: &mut egui::Ui, ed: &mut Editor) {
+fn accessories_shelf(ui: &mut egui::Ui, ed: &mut Editor, focus: &mut Option<usize>) {
+    if focus.is_some_and(|i| i >= ed.accessories.len()) {
+        *focus = None;
+    }
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
         ui.vertical(|ui| {
             ui.set_width(118.0);
-            let _ = theme::nav_item(ui, "Imported", true);
+            let _ = theme::nav_item(ui, "Imported", focus.is_none());
+            if let Some(i) = *focus {
+                if i < ed.accessories.len() {
+                    ui.add_space(4.0);
+                    let method = ed.accessories[i].settings.method;
+                    for (label, m) in [
+                        ("Hold", oxy_fit::FitMethod::Rigid),
+                        ("Fit", oxy_fit::FitMethod::Surface),
+                        ("Loose", oxy_fit::FitMethod::Loose),
+                    ] {
+                        if theme::nav_item(ui, label, method == m).clicked() && method != m {
+                            ed.accessories[i].settings.method = m;
+                            ed.accessories[i].binding = None;
+                            ed.accessories[i].influences = None;
+                            ed.accessories[i].fitted = None;
+                            if m != oxy_fit::FitMethod::Rigid {
+                                ed.accessories[i].settings.hide_body = true;
+                            }
+                            ed.dirty = true;
+                        }
+                    }
+                }
+            }
         });
         ui.separator();
         if ed.accessories.is_empty() {
@@ -286,7 +322,7 @@ fn accessories_shelf(ui: &mut egui::Ui, ed: &mut Editor) {
                 ui.label(RichText::new("No accessories yet.").color(TEXT_DIM));
                 ui.label(
                     RichText::new(
-                        "Pieces saved from OxyBrush show up here. They don't follow body changes yet.",
+                        "Pieces saved from OxyBrush show up here. One that sits on the body is fitted; one held away only follows the skeleton.",
                     )
                     .size(11.5)
                     .color(TEXT_DIM),
@@ -307,7 +343,18 @@ fn accessories_shelf(ui: &mut egui::Ui, ed: &mut Editor) {
                         let name = ed.accessories[i].acc.name.clone();
                         let tris = ed.accessories[i].acc.triangles.len();
                         let visible = ed.accessories[i].visible;
-                        let (rect, _) = ui.allocate_exact_size(Vec2::new(96.0, 112.0), Sense::hover());
+                        let (rect, card) = ui.allocate_exact_size(Vec2::new(96.0, 112.0), Sense::click());
+                        if card.clicked() {
+                            *focus = Some(i);
+                        }
+                        if *focus == Some(i) {
+                            ui.painter().rect_stroke(
+                                rect,
+                                egui::CornerRadius::same(6),
+                                Stroke::new(1.5, ACCENT),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
                         let circle = rect.center_top() + Vec2::new(0.0, 32.0);
                         ui.painter().circle_filled(
                             circle,
@@ -709,6 +756,10 @@ pub(crate) fn export_summary(ui: &mut egui::Ui, ed: &Editor) {
         format!("Texture size: {}", e.texture_size),
         format!("Eyes: {}", on(e.eyes)),
         format!("Visible accessories: {accessories}"),
+        format!(
+            "Worn garments: {}",
+            ed.worn.iter().filter(|w| w.settings.visible).count()
+        ),
     ] {
         ui.label(RichText::new(line).size(12.5));
         ui.add_space(2.0);
@@ -748,9 +799,17 @@ pub(crate) fn export_controls(ui: &mut egui::Ui, ed: &mut Editor) {
     let accessories = ed.accessories.iter().filter(|a| a.visible).count();
     ui.label(
         RichText::new(format!(
-            "Includes the body{}.",
+            "Includes the body{}{}.",
+            {
+                let clothes = ed.worn.iter().filter(|w| w.settings.visible).count();
+                if clothes > 0 {
+                    format!(", {clothes} fitted garment(s)")
+                } else {
+                    String::new()
+                }
+            },
             if accessories > 0 {
-                format!(" and {accessories} accessory mesh(es), skinned to the nearest body vertex")
+                format!(" and {accessories} accessory mesh(es)")
             } else {
                 String::new()
             }

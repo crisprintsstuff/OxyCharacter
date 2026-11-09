@@ -38,6 +38,8 @@ B=./target/release/oxycharacter
 $B --screenshot full.png --frames 40
 $B --select Head/Nose --hover nose/nose-scale-horiz-decr-incr --head --screenshot nose.png
 $B --pose-tab --pose wave --skeleton --screenshot pose.png
+$B --wardrobe-tab --wear tee,pants,hair --screenshot wardrobe.png
+$B --pose wave --wear tee,pants,hair --screenshot wardrobe-pose.png
 $B --set gender=0.1 --save-as $OXY_USER_DIR/p.oxyc --screenshot a.png
 $B --open $OXY_USER_DIR/p.oxyc --set age=0.8 --close --screenshot prompt.png   # unsaved-changes prompt
 $B --dialog open --screenshot dialog.png --frames 40   # typed-path fallback (does not open a portal dialog)
@@ -51,6 +53,8 @@ image** after any UI or rendering change. Software rendering runs at ~10 FPS.
 ```bash
 cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/rest.glb
 cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/tpose.glb --tpose
+cargo run --release -p oxy-cli -- wardrobe assets/generated/makehuman.oxyb
+cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/dressed.glb --wear tee,pants,hair --texture-size 256
 cd tools/validate-gltf && npm install
 node validate.mjs /tmp/rest.glb /tmp/tpose.glb              # must be 0 errors, 0 warnings
 cp /tmp/rest.glb . && node threejs-shot.cjs "rest.glb,rest.glb:bend" /tmp/three.png

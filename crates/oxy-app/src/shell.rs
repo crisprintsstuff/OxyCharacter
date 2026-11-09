@@ -586,12 +586,13 @@ fn shelf(root: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
                 for (label, tab) in [
                     ("Presets", LeftTab::Presets),
                     ("Skin", LeftTab::Skin),
+                    ("Wardrobe", LeftTab::Wardrobe),
                     ("Accessories", LeftTab::Accessories),
                 ] {
-                    let n = if tab == LeftTab::Accessories {
-                        ed.accessories.len()
-                    } else {
-                        0
+                    let n = match tab {
+                        LeftTab::Accessories => ed.accessories.len(),
+                        LeftTab::Wardrobe => ed.worn.iter().filter(|w| w.settings.visible).count(),
+                        _ => 0,
                     };
                     let text = if n > 0 {
                         format!("{label} ({n})")
@@ -610,7 +611,15 @@ fn shelf(root: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
                 }
             });
             ui.add_space(4.0);
-            ui::draw_shelf(ui, ed, state.left_tab, &mut state.preset_filter);
+            ui::draw_shelf(
+                ui,
+                ed,
+                state.left_tab,
+                &mut state.preset_filter,
+                &mut state.package_path,
+                &mut state.wardrobe_focus,
+                &mut state.accessory_focus,
+            );
         });
 }
 
@@ -649,6 +658,24 @@ fn rail(root: &mut egui::Ui, ed: &mut Editor, state: &mut UiState, orbit: &mut O
                 .clicked()
                 {
                     state.left_tab = LeftTab::Skin;
+                    state.shelf_collapsed = false;
+                }
+                let worn = ed.worn.iter().filter(|w| w.settings.visible).count();
+                let wardrobe_tip = if worn == 0 {
+                    "Wardrobe".to_string()
+                } else {
+                    format!("Wardrobe ({worn})")
+                };
+                if theme::icon_button(
+                    ui,
+                    Icon::Wardrobe,
+                    wardrobe_tip,
+                    state.left_tab == LeftTab::Wardrobe,
+                    true,
+                )
+                .clicked()
+                {
+                    state.left_tab = LeftTab::Wardrobe;
                     state.shelf_collapsed = false;
                 }
                 let tip = if ed.accessories.is_empty() {
