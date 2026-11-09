@@ -48,25 +48,6 @@ case "$PLATFORM" in
     tar -xzf "$tarball" -C "$extracted"
     root="$(echo "$extracted"/OxyCharacter-*)"
     info_from "$root/oxy"
-    if command -v xvfb-run >/dev/null 2>&1 || command -v Xvfb >/dev/null 2>&1; then
-      export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.json}"
-      export OXY_USER_DIR="$(mktemp -d)"
-      shot="${OXY_SMOKE_SHOT:-/tmp/oxy-release-smoke.png}"
-      rm -f "$shot"
-      if command -v xvfb-run >/dev/null 2>&1; then
-        xvfb-run -a -s "-screen 0 1280x720x24" \
-          "$root/oxycharacter" --frames 20 --screenshot "$shot"
-      else
-        display=":98"
-        Xvfb "$display" -screen 0 1280x720x24 >/tmp/oxy-xvfb.log 2>&1 &
-        xvfb_pid=$!
-        trap 'kill "$xvfb_pid" >/dev/null 2>&1 || true' EXIT
-        DISPLAY="$display" "$root/oxycharacter" --frames 20 --screenshot "$shot"
-        kill "$xvfb_pid" || true
-      fi
-      [[ -s "$shot" ]] || fail "editor smoke screenshot was not written"
-      echo "editor smoke screenshot: $shot"
-    fi
     chmod +x "$appimage"
     export APPIMAGE_EXTRACT_AND_RUN=1
     app_out="$(mktemp -d)"
@@ -75,6 +56,29 @@ case "$PLATFORM" in
       "$appimage" oxy info makehuman.oxyb
     ) | tee /tmp/oxy-appimage-info.txt
     grep -q "vertices" /tmp/oxy-appimage-info.txt
+    if command -v xvfb-run >/dev/null 2>&1 || command -v Xvfb >/dev/null 2>&1; then
+      export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-/usr/share/vulkan/icd.d/lvp_icd.json}"
+      smoke_editor() {
+        local bin="$1" shot="$2"
+        export OXY_USER_DIR
+        OXY_USER_DIR="$(mktemp -d)"
+        rm -f "$shot"
+        if command -v xvfb-run >/dev/null 2>&1; then
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            "$bin" --frames 20 --screenshot "$shot"
+        else
+          local display=":98" xvfb_pid
+          Xvfb "$display" -screen 0 1280x720x24 >/tmp/oxy-xvfb.log 2>&1 &
+          xvfb_pid=$!
+          DISPLAY="$display" "$bin" --frames 20 --screenshot "$shot"
+          kill "$xvfb_pid" >/dev/null 2>&1 || true
+        fi
+        [[ -s "$shot" ]] || fail "editor smoke screenshot was not written ($shot)"
+        echo "editor smoke screenshot: $shot"
+      }
+      smoke_editor "$root/oxycharacter" "${OXY_SMOKE_SHOT:-/tmp/oxy-release-smoke.png}"
+      smoke_editor "$appimage" /tmp/oxy-appimage-smoke.png
+    fi
     ;;
   macos)
     dmg="$(echo "$OUT"/OxyCharacter-*-macos-universal.dmg)"

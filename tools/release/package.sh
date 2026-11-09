@@ -137,6 +137,47 @@ if [ "${1:-}" = "oxy" ]; then
 fi
 exec "${HERE}/usr/bin/oxycharacter" "$@"
 EOF
+  # winit and wgpu load these with dlopen. linuxdeploy only follows
+  # DT_NEEDED, so without this the AppImage has no X11 or Vulkan loader.
+  mkdir -p "$appdir/usr/lib"
+  bundle_soname() {
+    local soname="$1" path real base dep dep_path dep_real dep_base
+    path="$(ldconfig -p 2>/dev/null | awk -v n="$soname" '$1==n { print $NF; exit }')"
+    if [[ -z "$path" || ! -e "$path" ]]; then
+      echo "warning: host library $soname was not found; the AppImage may not open a window"
+      return 0
+    fi
+    real="$(readlink -f "$path")"
+    base="$(basename "$real")"
+    cp -a "$real" "$appdir/usr/lib/$base"
+    if [[ "$base" != "$soname" ]]; then
+      ln -sfn "$base" "$appdir/usr/lib/$soname"
+    fi
+    while read -r dep dep_path; do
+      case "$dep" in
+        linux-vdso.so* | ld-linux* | libc.so* | libm.so* | libdl.so* | libpthread.so* | librt.so* | libresolv.so* | libutil.so*)
+          continue
+          ;;
+      esac
+      [[ -n "${dep_path:-}" && -e "$dep_path" ]] || continue
+      dep_real="$(readlink -f "$dep_path")"
+      dep_base="$(basename "$dep_real")"
+      if [[ ! -e "$appdir/usr/lib/$dep_base" ]]; then
+        cp -a "$dep_real" "$appdir/usr/lib/$dep_base"
+      fi
+      if [[ "$dep_base" != "$dep" && ! -e "$appdir/usr/lib/$dep" ]]; then
+        ln -sfn "$dep_base" "$appdir/usr/lib/$dep"
+      fi
+    done < <(ldd "$real" | awk '/=> \// { print $1, $3 }')
+  }
+  local soname
+  for soname in \
+    libxkbcommon.so.0 libxkbcommon-x11.so.0 \
+    libX11.so.6 libXcursor.so.1 libXrandr.so.2 libXi.so.6 libXext.so.6 \
+    libXrender.so.1 libXfixes.so.3 libXinerama.so.1 \
+    libvulkan.so.1; do
+    bundle_soname "$soname"
+  done
   chmod +x "$appdir/AppRun"
   local out
   out="$OUT_DIR/${name}.AppImage"
@@ -176,8 +217,10 @@ package_windows() {
 
   stage="$(mktemp -d)"
   copy_flat "$stage"
+  # ISCC resolves a relative OutputDir against the script, which lives in
+  # tools/release/, so the directory has to be absolute.
   stage_win="$(cygpath -w "$stage")"
-  out_win="$(cygpath -w "$OUT_DIR")"
+  out_win="$(cygpath -w "$(cd "$OUT_DIR" && pwd)")"
   iss_win="$(cygpath -w "$ROOT/tools/release/oxycharacter.iss")"
   OXY_ISS_VERSION="$SHORT" \
     OXY_ISS_SOURCE="$stage_win" \

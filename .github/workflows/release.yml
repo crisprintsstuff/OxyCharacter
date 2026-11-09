@@ -93,7 +93,9 @@ jobs:
             target: x86_64-pc-windows-msvc
             extra_target: ""
             cache_key: windows-x64
-          - os: macos-14
+          # macos-14 was retired on 2026-11-02. macos-15 is Apple Silicon;
+          # the Intel slice is cross-compiled and lipo'd into one binary.
+          - os: macos-15
             platform: macos
             target: aarch64-apple-darwin
             extra_target: x86_64-apple-darwin
@@ -111,7 +113,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
-            libxkbcommon-dev libvulkan-dev libasound2-dev libudev-dev \
+            libxkbcommon-dev libxkbcommon-x11-0 libvulkan-dev libasound2-dev libudev-dev \
             mesa-vulkan-drivers xvfb patchelf file
 
       - name: Inno Setup
