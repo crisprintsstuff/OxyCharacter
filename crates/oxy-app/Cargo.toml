@@ -26,6 +26,9 @@ bevy_egui = { version = "0.43.1", default-features = false, features = ["render"
 # Direct dependency so the theme module can stay egui-only (bevy_egui re-exports
 # the same crate; versions must match).
 egui = "0.36"
+# Native open/save dialogs. Linux uses the XDG desktop portal (no GTK).
+# The async API is polled from the UI thread so the editor keeps drawing.
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 
 [lints]
 workspace = true

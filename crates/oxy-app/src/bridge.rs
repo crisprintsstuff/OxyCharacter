@@ -41,8 +41,6 @@ pub struct Bridge {
     /// File being watched for OxyBrush saves, and its last seen modification time.
     pub watched: Option<(PathBuf, Option<SystemTime>)>,
     pub pending: Option<PendingImport>,
-    pub open_dialog: bool,
-    pub path_input: String,
     pub launch: bool,
     since_check: f32,
 }
@@ -54,8 +52,6 @@ impl Bridge {
             morph_dir: user_dir.join("morphs"),
             watched: None,
             pending: None,
-            open_dialog: false,
-            path_input: String::new(),
             launch: true,
             since_check: 0.0,
         }

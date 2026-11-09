@@ -12,6 +12,7 @@ use egui::{Color32, RichText, Sense, Stroke, Vec2};
 
 use crate::document::{After, PathDialog};
 use crate::editor::{self, split_group, Editor, Preset, PRESETS, SKIN_TONES};
+use crate::file_dialog;
 use crate::theme::{self, Icon, ACCENT, TEXT, TEXT_DIM, WIDGET};
 
 #[derive(Resource, Default)]
@@ -20,7 +21,9 @@ pub struct UiState {
     pub preset_filter: Option<&'static str>,
     pub pointer_busy: bool,
     pub styled: bool,
-    pub export_requested: bool,
+    /// Set when the user confirms an export path; the export system consumes it.
+    pub export_path: Option<std::path::PathBuf>,
+    pub dialogs: file_dialog::FileDialogState,
     pub right_mode: RightMode,
     /// Window menu hides the shelf. Rail buttons for presets, skin and
     /// accessories show it again. Default (false) keeps the shelf open.
@@ -564,43 +567,6 @@ fn slider_row(ui: &mut egui::Ui, ed: &mut Editor, p: &oxy_morph::ParamDef, show_
 }
 
 pub(crate) fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
-    if ed.bridge.open_dialog {
-        let mut open = true;
-        let mut go = false;
-        egui::Window::new("Import OxyBrush file")
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label("Path to an OxyBrush project (.oxb):");
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut ed.bridge.path_input)
-                        .desired_width(420.0)
-                        .hint_text("/path/to/sculpt.oxb"),
-                );
-                go = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.label(
-                    RichText::new("Tip: you can also drop an .oxb file onto the window.")
-                        .size(11.0)
-                        .color(TEXT_DIM),
-                );
-                ui.horizontal(|ui| {
-                    go |= ui
-                        .add_enabled(
-                            !ed.bridge.path_input.trim().is_empty(),
-                            egui::Button::new("Open"),
-                        )
-                        .clicked();
-                });
-            });
-        if go {
-            let p = std::path::PathBuf::from(ed.bridge.path_input.trim());
-            ed.open_oxb(&p);
-            open = false;
-        }
-        ed.bridge.open_dialog = open;
-    }
-
     let Some(pending) = ed.bridge.pending.as_mut() else {
         return;
     };
@@ -749,13 +715,13 @@ pub(crate) fn export_summary(ui: &mut egui::Ui, ed: &Editor) {
     }
     ui.add_space(4.0);
     ui.label(
-        RichText::new("Export writes a .glb under exports/.")
+        RichText::new("Export asks for a path. The suggestion is exports/<name>.glb.")
             .size(11.0)
             .color(TEXT_DIM),
     );
 }
 
-pub(crate) fn export_controls(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
+pub(crate) fn export_controls(ui: &mut egui::Ui, ed: &mut Editor) {
     use oxy_io::export::BindPose;
     let export = &mut ed.export;
     ui.checkbox(&mut export.skeleton, "Skeleton and skin weights");
@@ -794,31 +760,29 @@ pub(crate) fn export_controls(ui: &mut egui::Ui, ed: &mut Editor, export_request
     );
     ui.add_space(6.0);
     if ui
-        .add(egui::Button::new("Export .glb").min_size(Vec2::new(140.0, 28.0)))
+        .add(egui::Button::new("Export .glb…").min_size(Vec2::new(140.0, 28.0)))
         .clicked()
     {
-        *export_requested = true;
+        request_dialog(ed, PathDialog::Export);
     }
     ui.label(
-        RichText::new("Saves into the exports/ folder.")
+        RichText::new("Asks for a path. Defaults to exports/<project>.glb.")
             .size(11.0)
             .color(TEXT_DIM),
     );
 }
 
-pub(crate) fn open_dialog(ed: &mut Editor, kind: PathDialog) {
-    let path = match kind {
-        PathDialog::SaveAs => ed.default_project_path(),
-        PathDialog::Open => ed
-            .session()
-            .recent
-            .first()
-            .cloned()
-            .unwrap_or_else(|| ed.default_project_path()),
-    };
-    let s = ed.session.as_mut().expect("session");
-    s.path_input = path.display().to_string();
-    s.dialog = Some(kind);
+/// Menu, shortcut, or button asked for a file. The shell turns this into a
+/// native dialog or the typed fallback.
+pub(crate) fn request_dialog(ed: &mut Editor, kind: PathDialog) {
+    ed.session.as_mut().expect("session").dialog_request = Some(kind);
+}
+
+/// Drive native and typed file dialogs. Call once per frame from the chrome.
+pub(crate) fn service_dialogs(ctx: &egui::Context, ed: &mut Editor, state: &mut UiState) {
+    file_dialog::take_request(ed, &mut state.dialogs);
+    file_dialog::poll_native(ctx, ed, &mut state.dialogs, &mut state.export_path);
+    file_dialog::draw_typed(ctx, ed, &mut state.export_path);
 }
 
 pub(crate) fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
@@ -836,12 +800,12 @@ pub(crate) fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
         ed.undo();
     }
     if hit(shift, Key::S) {
-        open_dialog(ed, PathDialog::SaveAs);
+        request_dialog(ed, PathDialog::SaveAs);
     } else if hit(Modifiers::COMMAND, Key::S) {
         ed.save_or_ask();
     }
     if hit(Modifiers::COMMAND, Key::O) {
-        open_dialog(ed, PathDialog::Open);
+        request_dialog(ed, PathDialog::Open);
     }
     if hit(Modifiers::COMMAND, Key::N) {
         ed.request(After::New);
@@ -849,62 +813,7 @@ pub(crate) fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
 }
 
 pub(crate) fn document_windows(ctx: &egui::Context, ed: &mut Editor) {
-    // Open / Save as.
-    if let Some(kind) = ed.session().dialog {
-        let (title, button) = match kind {
-            PathDialog::Open => ("Open project", "Open"),
-            PathDialog::SaveAs => ("Save project as", "Save"),
-        };
-        let mut open = true;
-        let mut go = false;
-        let mut pick = None;
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label("OxyCharacter project (.oxyc):");
-                let s = ed.session.as_mut().expect("session");
-                let r = ui.add(egui::TextEdit::singleline(&mut s.path_input).desired_width(460.0));
-                go = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if kind == PathDialog::Open && !s.recent.is_empty() {
-                    ui.add_space(4.0);
-                    ui.label(RichText::new("Recent").size(11.0).color(TEXT_DIM));
-                    for p in &s.recent {
-                        if ui.link(p.display().to_string()).clicked() {
-                            pick = Some(p.clone());
-                        }
-                    }
-                }
-                ui.add_space(4.0);
-                go |= ui
-                    .add_enabled(!s.path_input.trim().is_empty(), egui::Button::new(button))
-                    .clicked();
-            });
-        let s = ed.session.as_mut().expect("session");
-        if let Some(p) = pick {
-            s.path_input = p.display().to_string();
-            go = true;
-        }
-        if go {
-            let path = std::path::PathBuf::from(s.path_input.trim());
-            s.dialog = None;
-            match kind {
-                PathDialog::Open => ed.request(After::Open(path)),
-                PathDialog::SaveAs => {
-                    if ed.save_project(&path) {
-                        if let Some(after) = ed.session.as_mut().and_then(|s| s.after_save.take()) {
-                            ed.perform(after);
-                        }
-                    }
-                }
-            }
-        } else if !open {
-            s.dialog = None;
-            s.after_save = None;
-        }
-    }
+    // Open / Save as / Export / Import live in `file_dialog` (native or typed).
 
     // Unsaved changes.
     if let Some(after) = ed.session().confirm.clone() {

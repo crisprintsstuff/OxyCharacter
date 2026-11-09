@@ -67,6 +67,7 @@ pub fn ui_system(
 
     ui::bridge_windows(&ctx, ed);
     ui::document_windows(&ctx, ed);
+    ui::service_dialogs(&ctx, ed, &mut state);
     help_window(&ctx, &mut state.help_open);
     about_window(&ctx, ed, &mut state.about_open);
 
@@ -161,7 +162,7 @@ fn trailing_tools(ui: &mut egui::Ui, rect: egui::Rect, ed: &mut Editor, state: &
     )
     .clicked()
     {
-        ed.bridge.open_dialog = true;
+        ui::request_dialog(ed, PathDialog::ImportOxb);
     }
     let can_redo = ed.session().history.redo_label().is_some();
     let can_undo = ed.session().history.undo_label().is_some();
@@ -198,7 +199,7 @@ fn avatar(ui: &mut egui::Ui) -> egui::Response {
 
 fn menus(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState, orbit: &mut Orbit, height: f32) {
     egui::MenuBar::new().ui(ui, |ui| {
-        file_menu(ui, ed, state);
+        file_menu(ui, ed);
         edit_menu(ui, ed);
         mode_menu(ui, state);
         window_menu(ui, state);
@@ -207,7 +208,7 @@ fn menus(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState, orbit: &mut Or
     });
 }
 
-fn file_menu(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
+fn file_menu(ui: &mut egui::Ui, ed: &mut Editor) {
     egui::containers::menu::MenuButton::new("File").ui(ui, |ui| {
         if ui
             .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
@@ -219,7 +220,7 @@ fn file_menu(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
             .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
             .clicked()
         {
-            ui::open_dialog(ed, PathDialog::Open);
+            ui::request_dialog(ed, PathDialog::Open);
         }
         let recent = ed.session().recent.clone();
         ui.add_enabled_ui(!recent.is_empty(), |ui| {
@@ -241,18 +242,18 @@ fn file_menu(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
             .add(egui::Button::new("Save as…").shortcut_text("Ctrl+Shift+S"))
             .clicked()
         {
-            ui::open_dialog(ed, PathDialog::SaveAs);
+            ui::request_dialog(ed, PathDialog::SaveAs);
         }
         ui.separator();
         if ui.button("Send to OxyBrush").clicked() {
             ed.send_to_oxybrush();
         }
         if ui.button("Import OxyBrush file (.oxb)…").clicked() {
-            ed.bridge.open_dialog = true;
+            ui::request_dialog(ed, PathDialog::ImportOxb);
         }
         ui.separator();
-        if ui.button("Export glTF (.glb)").clicked() {
-            state.export_requested = true;
+        if ui.button("Export glTF (.glb)…").clicked() {
+            ui::request_dialog(ed, PathDialog::Export);
         }
         ui.separator();
         if ui.button("Quit").clicked() {
@@ -384,7 +385,7 @@ fn tool_options(
                     RightMode::Morph => morph_tools(ui, ed, focus),
                     RightMode::Material => material_tools(ui, ed),
                     RightMode::Pose => pose_tools(ui, ed, orbit, height),
-                    RightMode::Export => export_tools(ui, ed, state),
+                    RightMode::Export => export_tools(ui, ed),
                 }
             });
             hairline(ui, BORDER);
@@ -461,7 +462,7 @@ fn pose_tools(ui: &mut egui::Ui, ed: &mut Editor, orbit: &mut Orbit, height: f32
     }
 }
 
-fn export_tools(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
+fn export_tools(ui: &mut egui::Ui, ed: &mut Editor) {
     use oxy_io::export::BindPose;
     ui.label(RichText::new("Bind").size(11.5).color(TEXT_DIM));
     let rest = ed.export.bind_pose == BindPose::Rest;
@@ -481,8 +482,8 @@ fn export_tools(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
                 ui.selectable_value(&mut ed.export.texture_size, size, size.to_string());
             }
         });
-    if ui.button("Export .glb").clicked() {
-        state.export_requested = true;
+    if ui.button("Export .glb…").clicked() {
+        ui::request_dialog(ed, PathDialog::Export);
     }
 }
 
@@ -821,7 +822,7 @@ fn lower_card(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
                 .id_salt("export-props")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui::export_controls(ui, ed, &mut state.export_requested);
+                    ui::export_controls(ui, ed);
                 });
         }
     }
