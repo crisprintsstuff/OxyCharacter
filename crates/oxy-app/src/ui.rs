@@ -7,6 +7,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Stroke
 
 use crate::document::{After, PathDialog};
 use crate::editor::{self, split_group, Editor, Preset, PRESETS, SKIN_TONES};
+use crate::file_dialog;
 use crate::scene::{CharacterHeight, Orbit, ViewportRect};
 
 pub const ACCENT: Color32 = Color32::from_rgb(38, 140, 230);
@@ -21,7 +22,9 @@ pub struct UiState {
     pub preset_filter: Option<&'static str>,
     pub pointer_busy: bool,
     pub styled: bool,
-    pub export_requested: bool,
+    /// Set when the user confirms an export path; the export system consumes it.
+    pub export_path: Option<std::path::PathBuf>,
+    pub dialogs: file_dialog::FileDialogState,
     pub right_mode: RightMode,
 }
 
@@ -116,7 +119,8 @@ pub fn ui_system(
                         .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
                         .clicked()
                     {
-                        open_dialog(ed, PathDialog::Open);
+                        ed.session.as_mut().expect("session").dialog_request =
+                            Some(PathDialog::Open);
                     }
                     let recent = ed.session().recent.clone();
                     ui.add_enabled_ui(!recent.is_empty(), |ui| {
@@ -138,18 +142,21 @@ pub fn ui_system(
                         .add(egui::Button::new("Save as…").shortcut_text("Ctrl+Shift+S"))
                         .clicked()
                     {
-                        open_dialog(ed, PathDialog::SaveAs);
+                        ed.session.as_mut().expect("session").dialog_request =
+                            Some(PathDialog::SaveAs);
                     }
                     ui.separator();
                     if ui.button("Send to OxyBrush").clicked() {
                         ed.send_to_oxybrush();
                     }
                     if ui.button("Import OxyBrush file (.oxb)…").clicked() {
-                        ed.bridge.open_dialog = true;
+                        ed.session.as_mut().expect("session").dialog_request =
+                            Some(PathDialog::ImportOxb);
                     }
                     ui.separator();
-                    if ui.button("Export glTF (.glb)").clicked() {
-                        state.export_requested = true;
+                    if ui.button("Export glTF (.glb)…").clicked() {
+                        ed.session.as_mut().expect("session").dialog_request =
+                            Some(PathDialog::Export);
                     }
                     ui.separator();
                     if ui.button("Quit").clicked() {
@@ -229,7 +236,7 @@ pub fn ui_system(
                     .on_hover_text("Edit left and right together");
                 ui.separator();
                 if tool(ui, "⬇ Export", "Export the current character as .glb").clicked() {
-                    state.export_requested = true;
+                    ed.session.as_mut().expect("session").dialog_request = Some(PathDialog::Export);
                 }
                 ui.separator();
                 if tool(
@@ -242,7 +249,7 @@ pub fn ui_system(
                     ed.send_to_oxybrush();
                 }
                 if tool(ui, "Import .oxb", "Import an OxyBrush project (or drop an .oxb file on the window)").clicked() {
-                    ed.bridge.open_dialog = true;
+                    ed.session.as_mut().expect("session").dialog_request = Some(PathDialog::ImportOxb);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     for (label, mode) in [("Pose", Some(RightMode::Pose)), ("Material", Some(RightMode::Material)), ("Morph", Some(RightMode::Morph))] {
@@ -326,7 +333,7 @@ pub fn ui_system(
             }
             RightMode::Pose => {
                 panel_header(ui, "Pose & Export");
-                pose_panel(ui, ed, &mut state.export_requested);
+                pose_panel(ui, ed);
             }
             RightMode::Material => {
                 panel_header(ui, "Material");
@@ -371,6 +378,16 @@ pub fn ui_system(
 
     bridge_windows(&ctx, ed);
     document_windows(&ctx, ed);
+    {
+        let UiState {
+            dialogs,
+            export_path,
+            ..
+        } = &mut *state;
+        file_dialog::take_request(ed, dialogs);
+        file_dialog::poll_native(&ctx, ed, dialogs, export_path);
+        file_dialog::draw_typed(&ctx, ed, export_path);
+    }
 
     state.pointer_busy = ctx.egui_is_using_pointer();
     if ed.hovered.is_none() {
@@ -773,43 +790,6 @@ fn accessories_tab(ui: &mut egui::Ui, ed: &mut Editor) {
 }
 
 fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
-    if ed.bridge.open_dialog {
-        let mut open = true;
-        let mut go = false;
-        egui::Window::new("Import OxyBrush file")
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label("Path to an OxyBrush project (.oxb):");
-                let r = ui.add(
-                    egui::TextEdit::singleline(&mut ed.bridge.path_input)
-                        .desired_width(420.0)
-                        .hint_text("/path/to/sculpt.oxb"),
-                );
-                go = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.label(
-                    RichText::new("Tip: you can also drop an .oxb file onto the window.")
-                        .size(11.0)
-                        .color(TEXT_DIM),
-                );
-                ui.horizontal(|ui| {
-                    go |= ui
-                        .add_enabled(
-                            !ed.bridge.path_input.trim().is_empty(),
-                            egui::Button::new("Open"),
-                        )
-                        .clicked();
-                });
-            });
-        if go {
-            let p = std::path::PathBuf::from(ed.bridge.path_input.trim());
-            ed.open_oxb(&p);
-            open = false;
-        }
-        ed.bridge.open_dialog = open;
-    }
-
     let Some(pending) = ed.bridge.pending.as_mut() else {
         return;
     };
@@ -891,7 +871,7 @@ fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
     }
 }
 
-fn pose_panel(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
+fn pose_panel(ui: &mut egui::Ui, ed: &mut Editor) {
     use oxy_io::export::BindPose;
     Frame::NONE.inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
         let Some(rig) = &ed.asset.rig else {
@@ -940,24 +920,9 @@ fn pose_panel(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
         );
         ui.add_space(6.0);
         if ui.add(egui::Button::new("⬇ Export .glb").min_size(Vec2::new(140.0, 28.0))).clicked() {
-            *export_requested = true;
+            ed.session.as_mut().expect("session").dialog_request = Some(PathDialog::Export);
         }
     });
-}
-
-fn open_dialog(ed: &mut Editor, kind: PathDialog) {
-    let path = match kind {
-        PathDialog::SaveAs => ed.default_project_path(),
-        PathDialog::Open => ed
-            .session()
-            .recent
-            .first()
-            .cloned()
-            .unwrap_or_else(|| ed.default_project_path()),
-    };
-    let s = ed.session.as_mut().expect("session");
-    s.path_input = path.display().to_string();
-    s.dialog = Some(kind);
 }
 
 fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
@@ -975,12 +940,12 @@ fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
         ed.undo();
     }
     if hit(shift, Key::S) {
-        open_dialog(ed, PathDialog::SaveAs);
+        ed.session.as_mut().expect("session").dialog_request = Some(PathDialog::SaveAs);
     } else if hit(Modifiers::COMMAND, Key::S) {
         ed.save_or_ask();
     }
     if hit(Modifiers::COMMAND, Key::O) {
-        open_dialog(ed, PathDialog::Open);
+        ed.session.as_mut().expect("session").dialog_request = Some(PathDialog::Open);
     }
     if hit(Modifiers::COMMAND, Key::N) {
         ed.request(After::New);
@@ -988,63 +953,6 @@ fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
 }
 
 fn document_windows(ctx: &egui::Context, ed: &mut Editor) {
-    // Open / Save as.
-    if let Some(kind) = ed.session().dialog {
-        let (title, button) = match kind {
-            PathDialog::Open => ("Open project", "Open"),
-            PathDialog::SaveAs => ("Save project as", "Save"),
-        };
-        let mut open = true;
-        let mut go = false;
-        let mut pick = None;
-        egui::Window::new(title)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label("OxyCharacter project (.oxyc):");
-                let s = ed.session.as_mut().expect("session");
-                let r = ui.add(egui::TextEdit::singleline(&mut s.path_input).desired_width(460.0));
-                go = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if kind == PathDialog::Open && !s.recent.is_empty() {
-                    ui.add_space(4.0);
-                    ui.label(RichText::new("Recent").size(11.0).color(TEXT_DIM));
-                    for p in &s.recent {
-                        if ui.link(p.display().to_string()).clicked() {
-                            pick = Some(p.clone());
-                        }
-                    }
-                }
-                ui.add_space(4.0);
-                go |= ui
-                    .add_enabled(!s.path_input.trim().is_empty(), egui::Button::new(button))
-                    .clicked();
-            });
-        let s = ed.session.as_mut().expect("session");
-        if let Some(p) = pick {
-            s.path_input = p.display().to_string();
-            go = true;
-        }
-        if go {
-            let path = std::path::PathBuf::from(s.path_input.trim());
-            s.dialog = None;
-            match kind {
-                PathDialog::Open => ed.request(After::Open(path)),
-                PathDialog::SaveAs => {
-                    if ed.save_project(&path) {
-                        if let Some(after) = ed.session.as_mut().and_then(|s| s.after_save.take()) {
-                            ed.perform(after);
-                        }
-                    }
-                }
-            }
-        } else if !open {
-            s.dialog = None;
-            s.after_save = None;
-        }
-    }
-
     // Unsaved changes.
     if let Some(after) = ed.session().confirm.clone() {
         let what = match after {

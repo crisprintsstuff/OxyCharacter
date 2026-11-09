@@ -40,6 +40,7 @@ $B --select Head/Nose --hover nose/nose-scale-horiz-decr-incr --head --screensho
 $B --pose-tab --pose wave --skeleton --screenshot pose.png
 $B --set gender=0.1 --save-as $OXY_USER_DIR/p.oxyc --screenshot a.png
 $B --open $OXY_USER_DIR/p.oxyc --set age=0.8 --close --screenshot prompt.png   # unsaved-changes prompt
+$B --dialog open --screenshot dialog.png --frames 40   # typed-path fallback (does not open a portal dialog)
 ```
 
 `--frames N` takes the screenshot after N frames, then exits. **Look at the
@@ -59,7 +60,19 @@ The three.js render is an independent engine check: `:bend` rotates bones in
 three.js, so a correct skin deforms smoothly. three.js strips `.` from node
 names (`upperarm01.L` → `upperarm01L`).
 
-Still manual and not yet done: importing into Blender, Godot, Unity, Unreal.
+Blender and Godot, headless, on the same kind of file (static, rigged rest,
+T-pose, blendshape, textured, skinned accessory):
+
+```bash
+tools/check-gltf-engines/check.sh /tmp/oxy-gltf-engines
+# Blender is required (`blender` or $BLENDER). Godot 4 is used when `godot` or $GODOT exists.
+```
+
+The script exports with `oxy` (including `--accessory hat.obj` and a one-vertex
+custom morph), then checks bind-pose skinning, a posed arm, shape keys and
+textures. It does not replace the Khronos validator or the three.js shot.
+
+Unity and Unreal are still manual and have not been run.
 
 ## 5. OxyBrush round trip
 

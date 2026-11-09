@@ -41,7 +41,15 @@
 - Khronos glTF validator 2.x: 0 errors, 0 warnings (rest, T-pose,
   blendshapes). three.js r170 loads the files and deforms correctly when
   bones are rotated.
+- Blender 4.0.2 and Godot 4.7.2, headless (`tools/check-gltf-engines`,
+  2026-11-09): bind pose matches the mesh, weights sum to 1, the upper arm
+  and the eye bone deform, the T-pose wrist stays level with the shoulder,
+  a blendshape moves vertices, and a nearest-vertex accessory follows its
+  bone. Textures (albedo, normal, roughness, iris) import. Godot renames
+  mesh nodes containing `.` and keeps bone names. No change to the writer
+  was required for those two importers.
 
 ## Not yet verified
 
-Blender, Godot, Unity and Unreal imports; engine humanoid retargeting.
+Unity and Unreal imports; engine humanoid retargeting. The checks above ran
+under lavapipe on Linux, not on a real GPU.

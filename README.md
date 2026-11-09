@@ -31,6 +31,7 @@ Editor options (useful for scripted screenshots / smoke tests):
 ```sh
 oxycharacter --set gender=1 --select Head/Nose --hover nose/nose-scale-horiz-decr-incr \
              --head --screenshot shot.png --frames 40
+oxycharacter --dialog open --screenshot dialog.png --frames 40   # typed-path dialog, no portal window
 ```
 
 Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json oxycharacter …`
@@ -43,7 +44,7 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 - **Morph** (right): search, category tree with modified counts, sliders with value
   readout, reset and range-end labels. Hovering or dragging a slider tints the
   region it affects. Symmetry links left/right sliders. Double-click resets a slider.
-- **Toolbar**: reset, randomize, body/head framing, symmetry, glTF export (to `exports/`).
+- **Toolbar**: reset, randomize, body/head framing, symmetry, glTF export.
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
@@ -78,8 +79,17 @@ embed the baked textures (1024–4096 px) and pass the glTF validator.
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Ctrl+O / Ctrl+N | Open / new |
 
-File paths are typed into a small dialog for now (with recent files); native
-file dialogs are planned.
+Open, Save as, glTF export and Import .oxb use the system file dialog when the
+desktop provides one (an XDG file chooser on Linux), with filters for `.oxyc`,
+`.oxb` and `.glb`. Open starts in the most recent project's folder, Save as
+in the current file's folder, export in `exports/`, and import in
+`user/oxybrush/` when that folder exists. **Open recent** stays in the File
+menu. If there is no native dialog (a headless session, or Linux without the
+portal), the same actions use a small path field that still lists recent
+projects. `OXY_FILE_DIALOG=fallback` forces that field; `=native` forces the
+system dialog.
+
+![Typed path dialog used when no native file chooser is available](docs/images/file-dialog-fallback.png)
 
 ![Unsaved-changes prompt after reopening and editing a project](docs/images/project-unsaved-prompt.png)
 
@@ -99,12 +109,20 @@ back from OxyBrush.
 ![Wave pose with the skeleton overlay](docs/images/pose-wave-skeleton.png)
 
 Exports pass the Khronos glTF validator with no errors or warnings, and load
-and deform in three.js. They have not yet been tried in Blender, Godot, Unity
-or Unreal.
+and deform in three.js. The same files were imported headless in **Blender
+4.0.2** and **Godot 4.7.2** (`tools/check-gltf-engines`): static mesh,
+rigged rest pose, T-pose bind, a blendshape, embedded textures (albedo,
+normal, roughness, iris) and a skinned accessory. In both engines the bind
+pose reproduces the mesh, skin weights sum to 1, rotating the upper arm and
+the eye bone deforms the body and eyeball, the T-pose left wrist stays level
+with the shoulder, and the shape key moves vertices. Godot renames mesh
+nodes that contain `.` (`eye.L` → `eye_L`) and keeps the bone names
+(`upperarm01.L`). Unity and Unreal have not been run.
 
 ```sh
 oxy export assets/generated/makehuman.oxyb hero.glb --tpose --texture-size 2048 gender=1 muscle=0.7
 oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/morphs
+oxy export assets/generated/makehuman.oxyb hero.glb --accessory hat.obj
 ```
 
 ## Sculpting in OxyBrush

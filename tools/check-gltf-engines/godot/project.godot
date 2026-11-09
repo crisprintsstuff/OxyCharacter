@@ -1,0 +1,10 @@
+; Engine configuration file.
+; Used only to run check.gd headlessly against an exported .glb.
+
+config_version=5
+
+[application]
+
+config/name="OxyGlTFCheck"
+run/main_loop_type="SceneTree"
+config/features=PackedStringArray("4.3")
