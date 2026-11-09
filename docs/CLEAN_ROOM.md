@@ -34,5 +34,7 @@ Process:
 | 2026-11-07 | three.js r170 (npm) | MIT | Independent check of exported skins | Test tool only, not shipped |
 | 2026-11-07 | Bevy 0.20, bevy_egui 0.43, egui 0.36 sources and bundled examples | MIT/Apache-2.0 | API usage | Read to learn APIs |
 | 2026-11-07 | MakeHuman `data/skins`, `data/eyes`, `data/litspheres` listings (same repo, CC0) | CC0 data | Checked for usable skin/eye assets | Only material settings, no skin textures; nothing imported. Skin and eyes are our own procedural designs ([ADR 0006](adr/0006-procedural-materials.md)) |
+| 2026-11-09 | OxyBrush editor mockup supplied with the task (sister application; the image is not committed) | Original design for our sister project | Family chrome: dark panels, blue accent, mode switch, tool rail, shelf, stacked inspector, status bar | Layout and density only. OxyCharacter maps its own editors onto that chrome ([ADR 0007](adr/0007-oxy-family-theme.md)). Icons are original geometry in `theme.rs`. Type is Roboto (Apache-2.0). No commercial UI was consulted for this restyle |
+| 2026-11-09 | Roboto v2.138 (github.com/googlefonts/roboto) | Apache-2.0 | UI typeface | The Regular face is bundled at `assets/fonts/Roboto-Regular.ttf`; the upstream license text is `assets/fonts/LICENSE-ROBOTO`. Not used as a source of icons or layout |
 
 Add new rows at the bottom.

@@ -6,6 +6,13 @@ development branch. The project has not made a release yet.
 ## [Unreleased] — 0.1.0
 
 ### Added
+- **Editor chrome:** the window follows the Oxy family layout (dark panels, blue
+  accent, rounded cards) from `crates/oxy-app/src/theme.rs`, so it can stay in
+  step with OxyBrush. Morph, Material, Pose and Export are a centered mode
+  switch; presets, skin tones and accessories sit on a bottom shelf; morph
+  categories and sliders stack on the right; mesh stats and the OxyBrush link
+  sit in the status bar. Behaviour of the editors, dialogs and shortcuts is
+  unchanged. The UI face is Roboto (Apache-2.0); icons are original geometry.
 - **Materials (M4):** UV render mesh (bundle v3); `oxy-material` crate with a
   procedural layer stack baked to albedo/normal/roughness textures; skin
   controls (tone, variation, detail, roughness, freckles, blush, eye shadow,

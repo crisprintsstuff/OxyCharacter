@@ -23,6 +23,9 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "x11", "bevy_window", "default_font", "png",
 ] }
 bevy_egui = { version = "0.43.1", default-features = false, features = ["render", "default_fonts"] }
+# Direct dependency so the theme module can stay egui-only (bevy_egui re-exports
+# the same crate; versions must match).
+egui = "0.36"
 
 [lints]
 workspace = true

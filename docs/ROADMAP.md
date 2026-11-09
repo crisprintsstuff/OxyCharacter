@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-07 (M4) · **Version:** 0.1.0 (unreleased)
+**Last updated:** 2026-11-09 (editor chrome) · **Version:** 0.1.0 (unreleased)
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -33,8 +33,10 @@ Cargo workspace, CI (fmt, clippy, test), clean-room policy, `oxy-mesh`
   own taxonomy and auto-paired bipolar sliders; macro grid (gender, age,
   muscle, weight, height).
 - `.oxyb` binary bundle; `oxy` CLI (`import-makehuman`, `info`, `export`).
-- Bevy + egui editor: content panel, viewport, morph tree + sliders, region
-  highlight on hover, symmetry, search, presets, randomize, skin swatches.
+- Bevy + egui editor: morph categories and sliders, region highlight on hover,
+  symmetry, search, presets, randomize, skin swatches. The window chrome was
+  restyled on 2026-11-09 to the shared Oxy family layout (mode switch, tool
+  rail, shelf, stacked inspector) without dropping those editors.
 
 ### M1.5 — OxyBrush bridge ✅
 - Independent `.oxb` reader/writer; `VMAP` (OxyBrush ≥ 2.5.8) for exact

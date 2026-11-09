@@ -14,6 +14,8 @@ mod document;
 mod editor;
 mod look;
 mod scene;
+mod shell;
+mod theme;
 mod ui;
 
 use std::fs::File;
@@ -292,7 +294,11 @@ fn main() -> ExitCode {
     }
 
     App::new()
-        .insert_resource(ClearColor(Color::srgb(0.085, 0.09, 0.1)))
+        .insert_resource(ClearColor(Color::srgb(
+            theme::VIEWPORT_BG_SRGB[0],
+            theme::VIEWPORT_BG_SRGB[1],
+            theme::VIEWPORT_BG_SRGB[2],
+        )))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "OxyCharacter".into(),
@@ -329,7 +335,7 @@ fn main() -> ExitCode {
             Startup,
             (scene::setup, scene::configure_gizmos, look::setup_look).chain(),
         )
-        .add_systems(EguiPrimaryContextPass, ui::ui_system)
+        .add_systems(EguiPrimaryContextPass, shell::ui_system)
         .add_systems(
             Update,
             (
@@ -342,6 +348,7 @@ fn main() -> ExitCode {
                 bridge::watch,
                 bridge::file_drop,
                 scene::sync_accessories,
+                scene::draw_floor,
                 scene::draw_skeleton,
                 look::bake_textures,
                 look::sync_eyes,

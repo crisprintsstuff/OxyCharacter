@@ -38,18 +38,25 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 
 ## Editor
 
-- **Content** (left): body presets with procedural silhouette cards, skin-tone swatches + custom color.
-- **Viewport** (center): orbit (LMB), pan (RMB/MMB), zoom (wheel); stats overlay.
-- **Morph** (right): search, category tree with modified counts, sliders with value
-  readout, reset and range-end labels. Hovering or dragging a slider tints the
-  region it affects. Symmetry links left/right sliders. Double-click resets a slider.
-- **Toolbar**: reset, randomize, body/head framing, symmetry, glTF export (to `exports/`).
+The window uses the same dark chrome as OxyBrush: a menu and a centered
+**Morph / Material / Pose / Export** switch, a tool-options bar, an icon rail,
+the viewport, a stacked inspector, a bottom shelf and a status bar.
+
+- **Shelf:** body presets (procedural silhouette cards), skin-tone swatches
+  plus a custom color, and OxyBrush accessories. The rail opens the same pages.
+- **Viewport:** orbit (LMB), pan (RMB/MMB), zoom (wheel). Mesh stats sit in the
+  status bar. Hovering or dragging a slider tints the region it affects.
+- **Morph:** search (top bar), category tabs with modified counts, sliders with
+  a value readout, reset and range-end labels. Symmetry links left and right
+  (the X axis). Double-click resets a slider. "Modified" hides untouched sliders.
+- **Material, Pose, Export:** the other modes. Reset, randomize, framing and
+  glTF export (to `exports/`) stay on the rail, the tool bar and the File menu.
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
 
 ## Skin and eyes
 
-The **Material** tab (top right) sets the look. Skin is **procedural**: a
+**Material** mode sets the look. Skin is **procedural**: a
 layer stack (tone, variation, freckles, blush, eye shadow, lips, surface
 detail, roughness) baked into albedo, normal and roughness textures over the
 body's UVs. Face regions come from the rig's face-bone weights, so they follow
@@ -90,8 +97,9 @@ body, fingers, toes and face) that **refits to every morph**: joints are
 averages of points that the morph targets move, including sculpts brought
 back from OxyBrush.
 
-- **Pose tab** (top right): preview poses (*Rest/A-pose, T-pose, Relaxed,
-  Wave, Stride*) with linear-blend skinning, and *Show skeleton*.
+- **Pose** mode: preview poses (*Rest/A-pose, T-pose, Relaxed, Wave, Stride*)
+  with linear-blend skinning, and *Show skeleton*. **Export** mode holds the
+  glTF options.
 - **Export (.glb)**: skeleton + skin weights (4 per vertex), bind pose
   *Rest* or *T-pose*, sculpted morphs baked or as named **blendshapes**,
   accessories skinned by nearest-vertex weight transfer.
@@ -112,14 +120,14 @@ oxy export assets/generated/makehuman.oxyb hero.glb --blendshapes --morphs user/
 OxyCharacter round-trips with [OxyBrush](https://github.com/crisprintsstuff/OxyBrush)
 through its native `.oxb` project files: no export/import dance, no shared code.
 
-1. **Send to OxyBrush** (toolbar or File menu) writes the current character to
+1. **Send to OxyBrush** (top bar or File menu) writes the current character to
    `user/oxybrush/character-<time>.oxb` and opens it in OxyBrush
    (`$OXYBRUSH_BIN`, else `oxybrush` on `PATH`; if neither starts, open the file yourself).
 2. Sculpt the body, add new pieces (hats, hair, props…), and **save** (Ctrl+S).
 3. OxyCharacter notices the save and shows **Import from OxyBrush**:
    - the reshaped **body becomes a morph slider** under *Custom › Sculpted*
      (saved to `user/morphs/` and reloaded on start; 🗑 deletes it);
-   - **new pieces become accessories** (left panel → *Accessories*), exported with the body.
+   - **new pieces become accessories** (shelf → *Accessories*), exported with the body.
 
 You can also import any `.oxb` with **Import .oxb** or by dropping it on the window.
 

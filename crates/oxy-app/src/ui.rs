@@ -1,19 +1,18 @@
-//! egui interface: menu + toolbar, content browser (left), morph editor
-//! (right), viewport overlay, status bar.
+//! Feature panels for the editor.
+//!
+//! The window chrome (bars, rail, shelf frame, inspector stack) lives in
+//! [`crate::shell`] and calls into this module. Add a shelf page by extending
+//! [`LeftTab`] and [`draw_shelf`]. Add a material section via [`MaterialSection`].
+//! Dialogs for projects and the OxyBrush bridge stay here so file-dialog work
+//! can land without rewriting the chrome.
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
-use egui::{Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, StrokeKind, Vec2};
+use bevy_egui::egui;
+use egui::{Color32, RichText, Sense, Stroke, Vec2};
 
 use crate::document::{After, PathDialog};
 use crate::editor::{self, split_group, Editor, Preset, PRESETS, SKIN_TONES};
-use crate::scene::{CharacterHeight, Orbit, ViewportRect};
-
-pub const ACCENT: Color32 = Color32::from_rgb(38, 140, 230);
-const BG: Color32 = Color32::from_rgb(30, 31, 34);
-const PANEL: Color32 = Color32::from_rgb(39, 40, 44);
-const WIDGET: Color32 = Color32::from_rgb(52, 54, 59);
-const TEXT_DIM: Color32 = Color32::from_rgb(150, 154, 160);
+use crate::theme::{self, Icon, ACCENT, TEXT, TEXT_DIM, WIDGET};
 
 #[derive(Resource, Default)]
 pub struct UiState {
@@ -23,6 +22,12 @@ pub struct UiState {
     pub styled: bool,
     pub export_requested: bool,
     pub right_mode: RightMode,
+    /// Window menu hides the shelf. Rail buttons for presets, skin and
+    /// accessories show it again. Default (false) keeps the shelf open.
+    pub shelf_collapsed: bool,
+    pub material_section: MaterialSection,
+    pub help_open: bool,
+    pub about_open: bool,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
@@ -31,6 +36,21 @@ pub enum RightMode {
     Morph,
     Pose,
     Material,
+    Export,
+}
+
+impl RightMode {
+    /// Order of the centered mode switch.
+    pub const ALL: [Self; 4] = [Self::Morph, Self::Material, Self::Pose, Self::Export];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Morph => "Morph",
+            Self::Material => "Material",
+            Self::Pose => "Pose",
+            Self::Export => "Export",
+        }
+    }
 }
 
 #[derive(Default, PartialEq, Clone, Copy)]
@@ -41,409 +61,93 @@ pub enum LeftTab {
     Accessories,
 }
 
-fn style(ctx: &egui::Context) {
-    let mut v = egui::Visuals::dark();
-    v.panel_fill = PANEL;
-    v.window_fill = PANEL;
-    v.extreme_bg_color = BG;
-    v.faint_bg_color = Color32::from_rgb(44, 45, 50);
-    v.selection.bg_fill = ACCENT.linear_multiply(0.55);
-    v.selection.stroke = Stroke::new(1.0, ACCENT);
-    v.widgets.inactive.bg_fill = WIDGET;
-    v.widgets.inactive.weak_bg_fill = WIDGET;
-    v.widgets.hovered.bg_fill = Color32::from_rgb(64, 67, 74);
-    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(64, 67, 74);
-    v.widgets.active.bg_fill = ACCENT;
-    v.slider_trailing_fill = true;
-    ctx.set_visuals(v);
-    ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = Vec2::new(6.0, 5.0);
-        s.spacing.slider_width = 150.0;
-    });
+/// Sub-sections of the Material mode inspector.
+#[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
+pub enum MaterialSection {
+    #[default]
+    Skin,
+    Eyes,
+    Bake,
 }
 
-fn panel_header(ui: &mut egui::Ui, title: &str) {
-    Frame::NONE
-        .fill(BG)
-        .inner_margin(Margin::symmetric(8, 5))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new(title).strong().size(14.0));
-        });
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn ui_system(
-    mut contexts: EguiContexts,
-    mut editor: ResMut<Editor>,
-    mut state: ResMut<UiState>,
-    mut rect_res: ResMut<ViewportRect>,
-    mut orbit: ResMut<Orbit>,
-    height: Res<CharacterHeight>,
-    diagnostics: Res<Time>,
-) -> Result {
-    let ctx = contexts.ctx_mut()?.clone();
-    if !state.styled {
-        style(&ctx);
-        state.styled = true;
+/// Shelf body for [`LeftTab`]. The shelf frame and tab strip are in `shell`.
+pub(crate) fn draw_shelf(
+    ui: &mut egui::Ui,
+    ed: &mut Editor,
+    tab: LeftTab,
+    filter: &mut Option<&'static str>,
+) {
+    match tab {
+        LeftTab::Presets => presets_shelf(ui, ed, filter),
+        LeftTab::Skin => skin_shelf(ui, ed),
+        LeftTab::Accessories => accessories_shelf(ui, ed),
     }
-    let mut root = egui::Ui::new(
-        ctx.clone(),
-        "root".into(),
-        egui::UiBuilder::new()
-            .layer_id(egui::LayerId::background())
-            .max_rect(ctx.viewport_rect()),
-    );
-    let ed = &mut *editor;
-    let previous_hover = ed.hovered.take();
-    shortcuts(&ctx, ed);
+}
 
-    // ── Menu + toolbar ────────────────────────────────────────────────
-    egui::Panel::top("menu")
-        .frame(Frame::NONE.fill(BG).inner_margin(Margin::symmetric(6, 2)))
-        .show(&mut root, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.label(RichText::new("OxyCharacter").strong().color(ACCENT));
-                ui.separator();
-                egui::containers::menu::MenuButton::new("File").ui(ui, |ui| {
-                    if ui
-                        .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
-                        .clicked()
-                    {
-                        ed.request(After::New);
-                    }
-                    if ui
-                        .add(egui::Button::new("Open…").shortcut_text("Ctrl+O"))
-                        .clicked()
-                    {
-                        open_dialog(ed, PathDialog::Open);
-                    }
-                    let recent = ed.session().recent.clone();
-                    ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                        egui::containers::menu::MenuButton::new("Open recent").ui(ui, |ui| {
-                            for p in recent {
-                                if ui.button(p.display().to_string()).clicked() {
-                                    ed.request(After::Open(p));
-                                }
-                            }
-                        });
-                    });
-                    if ui
-                        .add(egui::Button::new("Save").shortcut_text("Ctrl+S"))
-                        .clicked()
-                    {
-                        ed.save_or_ask();
-                    }
-                    if ui
-                        .add(egui::Button::new("Save as…").shortcut_text("Ctrl+Shift+S"))
-                        .clicked()
-                    {
-                        open_dialog(ed, PathDialog::SaveAs);
-                    }
-                    ui.separator();
-                    if ui.button("Send to OxyBrush").clicked() {
-                        ed.send_to_oxybrush();
-                    }
-                    if ui.button("Import OxyBrush file (.oxb)…").clicked() {
-                        ed.bridge.open_dialog = true;
-                    }
-                    ui.separator();
-                    if ui.button("Export glTF (.glb)").clicked() {
-                        state.export_requested = true;
-                    }
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        ed.request(After::Quit);
-                    }
-                });
-                egui::containers::menu::MenuButton::new("Edit").ui(ui, |ui| {
-                    let h = &ed.session().history;
-                    let undo = h.undo_label().map(|l| format!("Undo {l}"));
-                    let redo = h.redo_label().map(|l| format!("Redo {l}"));
-                    if ui
-                        .add_enabled(
-                            undo.is_some(),
-                            egui::Button::new(undo.unwrap_or("Undo".into()))
-                                .shortcut_text("Ctrl+Z"),
-                        )
-                        .clicked()
-                    {
-                        ed.undo();
-                    }
-                    if ui
-                        .add_enabled(
-                            redo.is_some(),
-                            egui::Button::new(redo.unwrap_or("Redo".into()))
-                                .shortcut_text("Ctrl+Shift+Z"),
-                        )
-                        .clicked()
-                    {
-                        ed.redo();
-                    }
-                    ui.separator();
-                    if ui.button("Reset all morphs").clicked() {
-                        ed.reset_all();
-                    }
-                    if ui.button("Randomize").clicked() {
-                        ed.randomize();
-                    }
-                    ui.checkbox(&mut ed.symmetry, "Symmetric editing");
-                });
-                egui::containers::menu::MenuButton::new("View").ui(ui, |ui| {
-                    if ui.button("Frame full body").clicked() {
-                        *orbit = Orbit::full_body(height.0);
-                    }
-                    if ui.button("Frame head").clicked() {
-                        *orbit = Orbit::head(height.0);
-                    }
-                });
-            });
+fn presets_shelf(ui: &mut egui::Ui, ed: &mut Editor, filter: &mut Option<&'static str>) {
+    let mut kinds = Vec::new();
+    for p in PRESETS {
+        if !kinds.contains(&p.kind) {
+            kinds.push(p.kind);
+        }
+    }
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+        ui.vertical(|ui| {
+            ui.set_width(118.0);
+            if theme::nav_item(ui, "All", filter.is_none()).clicked() {
+                *filter = None;
+            }
+            for kind in kinds {
+                if theme::nav_item(ui, kind, *filter == Some(kind)).clicked() {
+                    *filter = Some(kind);
+                }
+            }
         });
-    egui::Panel::top("toolbar")
-        .frame(
-            Frame::NONE
-                .fill(PANEL)
-                .inner_margin(Margin::symmetric(8, 5)),
-        )
-        .show(&mut root, |ui| {
-            ui.horizontal(|ui| {
-                let tool = |ui: &mut egui::Ui, label: &str, tip: &str| {
-                    ui.add(egui::Button::new(label).min_size(Vec2::new(30.0, 26.0)))
-                        .on_hover_text(tip)
-                };
-                if tool(ui, "⟲ Reset", "Reset all morphs to neutral").clicked() {
-                    ed.reset_all();
-                }
-                if tool(ui, "🎲 Random", "Generate a random character").clicked() {
-                    ed.randomize();
-                }
-                ui.separator();
-                if tool(ui, "Body", "Frame the full body").clicked() {
-                    *orbit = Orbit::full_body(height.0);
-                }
-                if tool(ui, "Head", "Frame the head").clicked() {
-                    *orbit = Orbit::head(height.0);
-                }
-                ui.separator();
-                ui.toggle_value(&mut ed.symmetry, "Symmetry")
-                    .on_hover_text("Edit left and right together");
-                ui.separator();
-                if tool(ui, "⬇ Export", "Export the current character as .glb").clicked() {
-                    state.export_requested = true;
-                }
-                ui.separator();
-                if tool(
-                    ui,
-                    "Send to OxyBrush",
-                    "Send the character to OxyBrush. Save there (Ctrl+S): a reshaped body comes back as a morph slider, new pieces as accessories.",
-                )
-                .clicked()
-                {
-                    ed.send_to_oxybrush();
-                }
-                if tool(ui, "Import .oxb", "Import an OxyBrush project (or drop an .oxb file on the window)").clicked() {
-                    ed.bridge.open_dialog = true;
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    for (label, mode) in [("Pose", Some(RightMode::Pose)), ("Material", Some(RightMode::Material)), ("Morph", Some(RightMode::Morph))] {
-                        let selected = mode == Some(state.right_mode);
-                        let b = egui::Button::selectable(selected, label).min_size(Vec2::new(70.0, 24.0));
-                        let r = ui.add_enabled(mode.is_some(), b).on_disabled_hover_text("Planned for a later milestone");
-                        if let (true, Some(m)) = (r.clicked(), mode) {
-                            state.right_mode = m;
-                        }
-                    }
-                });
-            });
-        });
-    egui::Panel::bottom("status")
-        .frame(Frame::NONE.fill(BG).inner_margin(Margin::symmetric(8, 3)))
-        .show(&mut root, |ui| {
-            // Right-aligned license first, so the status message truncates into the remaining space.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    RichText::new(format!(
-                        "Base mesh: {} · {}",
-                        ed.asset.meta.name, ed.asset.meta.license
-                    ))
-                    .color(TEXT_DIM),
-                );
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if let Some((p, _)) = &ed.bridge.watched {
-                        ui.label(RichText::new("Linked to OxyBrush").color(ACCENT))
-                            .on_hover_text(format!("Watching {} for OxyBrush saves", p.display()));
-                    }
-                    ui.add(egui::Label::new(RichText::new(&ed.status).color(TEXT_DIM)).truncate());
-                });
-            });
-        });
-
-    // ── Left: content browser ─────────────────────────────────────────
-    egui::Panel::left("content")
-        .default_size(250.0)
-        .resizable(true)
-        .frame(Frame::NONE.fill(PANEL))
-        .show(&mut root, |ui| {
-            panel_header(ui, "Content");
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.add_space(6.0);
-                ui.selectable_value(&mut state.left_tab, LeftTab::Presets, "Body Presets");
-                ui.selectable_value(&mut state.left_tab, LeftTab::Skin, "Skin");
-                let n = ed.accessories.len();
-                ui.selectable_value(
-                    &mut state.left_tab,
-                    LeftTab::Accessories,
-                    if n > 0 {
-                        format!("Accessories ({n})")
-                    } else {
-                        "Accessories".into()
-                    },
-                );
-            });
-            ui.separator();
-            egui::ScrollArea::vertical()
-                .auto_shrink(false)
-                .show(ui, |ui| {
+        ui.separator();
+        let presets: Vec<&Preset> = PRESETS
+            .iter()
+            .filter(|p| filter.is_none_or(|f| f == p.kind))
+            .collect();
+        egui::ScrollArea::horizontal()
+            .id_salt("preset-cards")
+            .max_height(116.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
                     ui.add_space(4.0);
-                    match state.left_tab {
-                        LeftTab::Presets => presets_tab(ui, ed, &mut state.preset_filter),
-                        LeftTab::Skin => skin_tab(ui, ed),
-                        LeftTab::Accessories => accessories_tab(ui, ed),
+                    for p in presets {
+                        preset_card(ui, ed, p);
                     }
                 });
-        });
-
-    // ── Right: morph editor ───────────────────────────────────────────
-    egui::Panel::right("morph")
-        .default_size(330.0)
-        .resizable(true)
-        .frame(Frame::NONE.fill(PANEL))
-        .show(&mut root, |ui| match state.right_mode {
-            RightMode::Morph => {
-                panel_header(ui, "Morph");
-                morph_panel(ui, ed);
-            }
-            RightMode::Pose => {
-                panel_header(ui, "Pose & Export");
-                pose_panel(ui, ed, &mut state.export_requested);
-            }
-            RightMode::Material => {
-                panel_header(ui, "Material");
-                egui::ScrollArea::vertical()
-                    .auto_shrink(false)
-                    .show(ui, |ui| material_panel(ui, ed));
-            }
-        });
-
-    // ── Center: viewport overlay ──────────────────────────────────────
-    let fps = 1.0 / diagnostics.delta_secs().max(1e-4);
-    let central = egui::CentralPanel::default()
-        .frame(Frame::NONE)
-        .show(&mut root, |ui| {
-            let r = ui.max_rect();
-            let text = format!(
-            "Vertices: {}\nTriangles: {}\nActive morph targets: {}\nHeight: {:.2} m\nFPS: {:.0}",
-            ed.asset.mesh.base.vertex_count(),
-            ed.asset.mesh.base.indices.len() / 3,
-            ed.active_targets,
-            height.0,
-            fps
-        );
-            ui.painter().text(
-                r.min + Vec2::new(10.0, 8.0),
-                egui::Align2::LEFT_TOP,
-                text,
-                egui::FontId::monospace(11.5),
-                Color32::from_rgb(230, 196, 90),
-            );
-            ui.painter().text(
-                r.left_bottom() + Vec2::new(10.0, -8.0),
-                egui::Align2::LEFT_BOTTOM,
-                "LMB orbit · RMB/MMB pan · wheel zoom",
-                egui::FontId::proportional(11.0),
-                TEXT_DIM,
-            );
-        });
-    let r = central.response.rect;
-    rect_res.min = bevy::math::Vec2::new(r.min.x, r.min.y);
-    rect_res.max = bevy::math::Vec2::new(r.max.x, r.max.y);
-
-    bridge_windows(&ctx, ed);
-    document_windows(&ctx, ed);
-
-    state.pointer_busy = ctx.egui_is_using_pointer();
-    if ed.hovered.is_none() {
-        ed.hovered = ed.pinned_hover.clone();
-    }
-    if ed.hovered != previous_hover {
-        ed.highlight_dirty = true;
-    }
-    Ok(())
+            });
+    });
 }
 
-fn presets_tab(ui: &mut egui::Ui, ed: &mut Editor, filter: &mut Option<&'static str>) {
-    ui.horizontal_wrapped(|ui| {
-        ui.add_space(6.0);
-        if ui.selectable_label(filter.is_none(), "All").clicked() {
-            *filter = None;
-        }
-        for kind in ["Adult", "Young", "Elder"] {
-            if ui.selectable_label(*filter == Some(kind), kind).clicked() {
-                *filter = Some(kind);
-            }
-        }
-    });
-    ui.add_space(6.0);
-    let gap = 6.0;
-    let cols = ((ui.available_width() - gap) / (96.0 + gap))
-        .floor()
-        .max(1.0) as usize;
-    let w = (ui.available_width() - gap * (cols as f32 + 1.0)) / cols as f32;
-    let card = Vec2::new(w, w * 1.25);
-    let presets: Vec<&Preset> = PRESETS
-        .iter()
-        .filter(|p| filter.is_none_or(|f| f == p.kind))
-        .collect();
-    for row in presets.chunks(cols) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            ui.add_space(gap);
-            for p in row {
-                let (rect, resp) = ui.allocate_exact_size(card, Sense::click());
-                let hovered = resp.hovered();
-                let painter = ui.painter_at(rect);
-                painter.rect_filled(
-                    rect,
-                    CornerRadius::same(6),
-                    if hovered { WIDGET } else { BG },
-                );
-                if hovered {
-                    painter.rect_stroke(
-                        rect,
-                        CornerRadius::same(6),
-                        Stroke::new(1.5, ACCENT),
-                        StrokeKind::Inside,
-                    );
-                }
-                let fig = egui::Rect::from_min_max(
-                    rect.min + Vec2::new(8.0, 10.0),
-                    rect.max - Vec2::new(8.0, 26.0),
-                );
-                draw_figure(&painter, fig, p.values);
-                painter.text(
-                    rect.center_bottom() - Vec2::new(0.0, 8.0),
-                    egui::Align2::CENTER_BOTTOM,
-                    p.name,
-                    egui::FontId::proportional(12.0),
-                    Color32::WHITE,
-                );
-                if resp.on_hover_text(format!("{} preset", p.kind)).clicked() {
-                    ed.apply_preset(p);
-                }
-            }
-        });
-        ui.add_space(gap - 5.0);
+fn preset_card(ui: &mut egui::Ui, ed: &mut Editor, p: &Preset) {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(84.0, 108.0), Sense::click());
+    let circle = rect.center_top() + Vec2::new(0.0, 36.0);
+    let fill = if resp.hovered() {
+        theme::WIDGET_HOVER
+    } else {
+        WIDGET
+    };
+    ui.painter().circle_filled(circle, 30.0, fill);
+    if resp.hovered() {
+        ui.painter()
+            .circle_stroke(circle, 30.0, Stroke::new(1.5, ACCENT));
+    }
+    let fig = egui::Rect::from_center_size(circle + Vec2::new(0.0, 4.0), Vec2::new(34.0, 46.0));
+    draw_figure(ui.painter(), fig, p.values);
+    ui.painter().text(
+        rect.center_bottom(),
+        egui::Align2::CENTER_BOTTOM,
+        p.name,
+        egui::FontId::proportional(11.0),
+        TEXT,
+    );
+    if resp.on_hover_text(format!("{} preset", p.kind)).clicked() {
+        ed.apply_preset(p);
     }
 }
 
@@ -503,121 +207,231 @@ fn draw_figure(painter: &egui::Painter, area: egui::Rect, values: &[(&str, f32)]
     }
 }
 
-fn skin_tab(ui: &mut egui::Ui, ed: &mut Editor) {
-    ui.horizontal(|ui| {
-        ui.add_space(6.0);
-        ui.label(RichText::new("Skin tone").color(TEXT_DIM));
-    });
-    ui.horizontal_wrapped(|ui| {
-        ui.add_space(6.0);
-        for (name, rgb) in SKIN_TONES {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(52.0), Sense::click());
-            let c = egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
-            ui.painter().rect_filled(rect, CornerRadius::same(5), c);
-            if ed.skin == *rgb || resp.hovered() {
-                ui.painter().rect_stroke(
-                    rect,
-                    CornerRadius::same(5),
-                    Stroke::new(2.0, ACCENT),
-                    StrokeKind::Outside,
-                );
-            }
-            if resp.on_hover_text(*name).clicked() {
-                ed.skin = *rgb;
-            }
-        }
-    });
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.add_space(6.0);
-        ui.label("Custom");
-        let mut c = egui::Rgba::from_rgb(ed.skin[0], ed.skin[1], ed.skin[2]);
-        if egui::color_picker::color_edit_button_rgba(ui, &mut c, egui::color_picker::Alpha::Opaque)
-            .changed()
-        {
-            ed.skin = [c.r(), c.g(), c.b()];
-        }
-    });
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.add_space(6.0);
-        ui.label(
-            RichText::new("Layered skin materials arrive in milestone M4.")
-                .italics()
-                .color(TEXT_DIM),
-        );
+fn skin_shelf(ui: &mut egui::Ui, ed: &mut Editor) {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+        ui.vertical(|ui| {
+            ui.set_width(118.0);
+            let _ = theme::nav_item(ui, "Tones", true);
+        });
+        ui.separator();
+        egui::ScrollArea::horizontal()
+            .id_salt("skin-cards")
+            .max_height(116.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    ui.add_space(4.0);
+                    for (name, rgb) in SKIN_TONES {
+                        if tone_circle(ui, name, rgb, ed.skin == *rgb, 52.0).clicked() {
+                            ed.skin = *rgb;
+                        }
+                    }
+                    custom_tone(ui, ed);
+                });
+            });
     });
 }
 
-fn morph_panel(ui: &mut egui::Ui, ed: &mut Editor) {
-    let pad = Margin::symmetric(8, 6);
-    Frame::NONE.inner_margin(pad).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label("🔍");
-            ui.add(
-                egui::TextEdit::singleline(&mut ed.search)
-                    .hint_text("Search morphs…")
-                    .desired_width(f32::INFINITY),
-            );
-        });
-    });
-
-    // Bottom options first so the scroll areas get the remaining height.
-    egui::Panel::bottom("morph_options")
-        .frame(Frame::NONE.inner_margin(pad))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut ed.modified_only, "Show modified only");
-                ui.checkbox(&mut ed.symmetry, "Symmetry");
-            });
-        });
-
-    let searching = !ed.search.trim().is_empty();
-    if !searching {
-        // Category tree.
-        let tree_h = (ui.available_height() * 0.38).clamp(140.0, 300.0);
-        Frame::NONE
-            .fill(BG)
-            .inner_margin(Margin::symmetric(6, 4))
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("tree")
-                    .max_height(tree_h)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        let cats = ed.categories.clone();
-                        for cat in &cats {
-                            let n = ed.modified_count(&cat.top, None);
-                            let title = if n > 0 {
-                                format!("{}  ({n})", cat.top)
-                            } else {
-                                cat.top.clone()
-                            };
-                            egui::CollapsingHeader::new(RichText::new(title).strong())
-                                .id_salt(&cat.top)
-                                .default_open(cat.top == "Body" || cat.top == "Head")
-                                .show(ui, |ui| {
-                                    for sub in &cat.subs {
-                                        let m = ed.modified_count(&cat.top, Some(sub));
-                                        let label = if m > 0 {
-                                            format!("{sub}  ({m})")
-                                        } else {
-                                            sub.clone()
-                                        };
-                                        let sel = ed.selected.0 == cat.top && &ed.selected.1 == sub;
-                                        if ui.selectable_label(sel, label).clicked() {
-                                            ed.selected = (cat.top.clone(), sub.clone());
-                                        }
-                                    }
-                                });
-                        }
-                    });
-            });
-        ui.add_space(4.0);
+fn tone_circle(
+    ui: &mut egui::Ui,
+    name: &str,
+    rgb: &[f32; 3],
+    selected: bool,
+    diameter: f32,
+) -> egui::Response {
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(diameter + 8.0, diameter + 20.0), Sense::click());
+    let c = rect.center_top() + Vec2::new(0.0, diameter * 0.5 + 2.0);
+    ui.painter().circle_filled(
+        c,
+        diameter * 0.5 - 1.0,
+        egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]),
+    );
+    if selected || resp.hovered() {
+        ui.painter()
+            .circle_stroke(c, diameter * 0.5, Stroke::new(2.0, ACCENT));
     }
+    ui.painter().text(
+        rect.center_bottom(),
+        egui::Align2::CENTER_BOTTOM,
+        name,
+        egui::FontId::proportional(10.5),
+        TEXT_DIM,
+    );
+    resp.on_hover_text(name)
+}
 
-    // Slider list.
+fn custom_tone(ui: &mut egui::Ui, ed: &mut Editor) {
+    ui.vertical(|ui| {
+        ui.add_space(16.0);
+        ui.label(RichText::new("Custom").size(11.0).color(TEXT_DIM));
+        let _ = color_button(ui, &mut ed.skin);
+    });
+}
+
+fn accessories_shelf(ui: &mut egui::Ui, ed: &mut Editor) {
+    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+        ui.vertical(|ui| {
+            ui.set_width(118.0);
+            let _ = theme::nav_item(ui, "Imported", true);
+        });
+        ui.separator();
+        if ed.accessories.is_empty() {
+            ui.vertical(|ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new("No accessories yet.").color(TEXT_DIM));
+                ui.label(
+                    RichText::new(
+                        "Pieces saved from OxyBrush show up here. They don't follow body changes yet.",
+                    )
+                    .size(11.5)
+                    .color(TEXT_DIM),
+                );
+            });
+            return;
+        }
+        let mut remove = None;
+        let count = ed.accessories.len();
+        egui::ScrollArea::horizontal()
+            .id_salt("acc-cards")
+            .max_height(116.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    for i in 0..count {
+                        let name = ed.accessories[i].acc.name.clone();
+                        let tris = ed.accessories[i].acc.triangles.len();
+                        let visible = ed.accessories[i].visible;
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(96.0, 112.0), Sense::hover());
+                        let circle = rect.center_top() + Vec2::new(0.0, 32.0);
+                        ui.painter().circle_filled(
+                            circle,
+                            26.0,
+                            if visible { WIDGET } else { theme::CANVAS },
+                        );
+                        let letter: String = name.chars().take(1).collect();
+                        ui.painter().text(
+                            circle,
+                            egui::Align2::CENTER_CENTER,
+                            letter,
+                            egui::FontId::proportional(16.0),
+                            if visible { TEXT } else { TEXT_DIM },
+                        );
+                        ui.painter().text(
+                            rect.center_top() + Vec2::new(0.0, 68.0),
+                            egui::Align2::CENTER_CENTER,
+                            short_name(&name),
+                            egui::FontId::proportional(11.0),
+                            TEXT,
+                        );
+                        let eye_rect = egui::Rect::from_center_size(
+                            rect.left_bottom() + Vec2::new(24.0, -14.0),
+                            Vec2::splat(22.0),
+                        );
+                        let trash_rect = egui::Rect::from_center_size(
+                            rect.right_bottom() + Vec2::new(-24.0, -14.0),
+                            Vec2::splat(22.0),
+                        );
+                        let mut eye_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(eye_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        if theme::icon_button_sized(
+                            &mut eye_ui,
+                            if visible { Icon::Eye } else { Icon::EyeOff },
+                            "Show / hide",
+                            false,
+                            true,
+                            22.0,
+                        )
+                        .clicked()
+                        {
+                            ed.accessories[i].visible = !visible;
+                            ed.accessories_dirty = true;
+                        }
+                        let mut trash_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(trash_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        if theme::icon_button_sized(&mut trash_ui, Icon::Trash, "Remove", false, true, 22.0)
+                            .on_hover_text(format!("{name} · {tris} triangles"))
+                            .clicked()
+                        {
+                            remove = Some(i);
+                        }
+                    }
+                });
+            });
+        if let Some(i) = remove {
+            let a = ed.accessories.remove(i);
+            ed.status = format!("Removed accessory “{}”", a.acc.name);
+            ed.accessories_dirty = true;
+        }
+    });
+}
+
+fn short_name(name: &str) -> String {
+    let count = name.chars().count();
+    if count > 12 {
+        let mut s: String = name.chars().take(11).collect();
+        s.push('…');
+        s
+    } else {
+        name.to_string()
+    }
+}
+
+/// Category rows under the selected top-level tab (or search hits).
+pub(crate) fn morph_sub_list(ui: &mut egui::Ui, ed: &mut Editor) {
+    if !ed.search.trim().is_empty() {
+        let hits: Vec<(String, String)> = ed
+            .search_results()
+            .into_iter()
+            .map(|p| {
+                let (_top, sub) = split_group(p);
+                (p.id.clone(), format!("{sub} · {}", p.label))
+            })
+            .collect();
+        if hits.is_empty() {
+            ui.label(RichText::new("No matching morphs.").color(TEXT_DIM));
+            return;
+        }
+        for (id, label) in hits {
+            let resp = theme::selectable_row(ui, &id, &label, "", false);
+            if resp.hovered() {
+                ed.hovered = Some(id);
+            }
+        }
+        return;
+    }
+    let top = ed.selected.0.clone();
+    let subs: Vec<String> = ed
+        .categories
+        .iter()
+        .find(|c| c.top == top)
+        .map(|c| c.subs.clone())
+        .unwrap_or_default();
+    if subs.is_empty() {
+        ui.label(RichText::new("Nothing in this category.").color(TEXT_DIM));
+        return;
+    }
+    for sub in subs {
+        let n = ed.modified_count(&top, Some(&sub));
+        let trailing = if n > 0 { n.to_string() } else { String::new() };
+        let sel = ed.selected.1 == sub;
+        if theme::selectable_row(ui, (&top, &sub), &sub, &trailing, sel).clicked() {
+            ed.selected = (top.clone(), sub);
+        }
+    }
+}
+
+/// Sliders for the selected group, or for the current search.
+pub(crate) fn morph_sliders(ui: &mut egui::Ui, ed: &mut Editor) {
+    let searching = !ed.search.trim().is_empty();
     let ids: Vec<String> = if searching {
         ed.search_results()
             .into_iter()
@@ -627,44 +441,60 @@ fn morph_panel(ui: &mut egui::Ui, ed: &mut Editor) {
         let (t, s) = ed.selected.clone();
         ed.params_in(&t, &s).map(|p| p.id.clone()).collect()
     };
-    Frame::NONE
-        .inner_margin(Margin::symmetric(8, 2))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let title = if searching {
-                    format!("{} results", ids.len())
-                } else {
-                    format!("{} › {}", ed.selected.0, ed.selected.1)
-                };
-                ui.label(RichText::new(title).strong());
-                if !searching {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("Reset group").clicked() {
-                            let (t, s) = ed.selected.clone();
-                            ed.reset_group(&t, &s);
-                        }
-                    });
-                }
-            });
-        });
-    egui::ScrollArea::vertical()
-        .id_salt("sliders")
-        .auto_shrink(false)
-        .show(ui, |ui| {
-            Frame::NONE
-                .inner_margin(Margin::symmetric(8, 2))
-                .show(ui, |ui| {
-                    for id in ids {
-                        let Some(p) = ed.asset.catalog.param(&id).cloned() else {
-                            continue;
-                        };
-                        if ed.modified_only && !ed.is_modified(&p) {
-                            continue;
-                        }
-                        slider_row(ui, ed, &p, searching);
-                    }
-                });
-        });
+    if ids.is_empty() {
+        ui.label(
+            RichText::new(if searching {
+                "No matching morphs."
+            } else {
+                "No morphs in this group."
+            })
+            .color(TEXT_DIM),
+        );
+        return;
+    }
+    let mut shown = false;
+    for id in ids {
+        let Some(p) = ed.asset.catalog.param(&id).cloned() else {
+            continue;
+        };
+        if ed.modified_only && !ed.is_modified(&p) {
+            continue;
+        }
+        shown = true;
+        slider_row(ui, ed, &p, searching);
+    }
+    if !shown {
+        ui.label(RichText::new("No modified morphs in this group.").color(TEXT_DIM));
+    }
+}
+
+/// One morph on the tool-options bar (the parameter under the pointer).
+pub(crate) fn compact_param(ui: &mut egui::Ui, ed: &mut Editor, id: &str) {
+    let Some(p) = ed.asset.catalog.param(id).cloned() else {
+        return;
+    };
+    ui.label(RichText::new(&p.label).size(12.0).color(TEXT));
+    let mut v = ed.value(&p.id);
+    ui.spacing_mut().slider_width = 110.0;
+    let resp = ui.add(
+        egui::Slider::new(&mut v, p.min..=p.max)
+            .show_value(false)
+            .trailing_fill(p.min >= 0.0),
+    );
+    if resp.changed() {
+        ed.set(&p.id, v);
+    }
+    if resp.double_clicked() {
+        ed.set(&p.id, p.default);
+    }
+    if resp.dragged() || resp.hovered() {
+        ed.hovered = Some(p.id.clone());
+    }
+    ui.label(
+        RichText::new(ed.display_value(&p))
+            .monospace()
+            .color(if ed.is_modified(&p) { ACCENT } else { TEXT_DIM }),
+    );
 }
 
 fn slider_row(ui: &mut egui::Ui, ed: &mut Editor, p: &oxy_morph::ParamDef, show_group: bool) {
@@ -733,46 +563,7 @@ fn slider_row(ui: &mut egui::Ui, ed: &mut Editor, p: &oxy_morph::ParamDef, show_
     }
 }
 
-fn accessories_tab(ui: &mut egui::Ui, ed: &mut Editor) {
-    Frame::NONE.inner_margin(Margin::symmetric(8, 2)).show(ui, |ui| {
-        if ed.accessories.is_empty() {
-            ui.label(RichText::new("No accessories yet.").color(TEXT_DIM));
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new("Model props, hair or clothing in OxyBrush as new pieces, then save: they arrive here. They don't follow body changes yet (fitting comes in M5).")
-                    .color(TEXT_DIM)
-                    .size(11.5),
-            );
-            return;
-        }
-        let mut remove = None;
-        for (i, a) in ed.accessories.iter_mut().enumerate() {
-            Frame::NONE.fill(BG).corner_radius(CornerRadius::same(5)).inner_margin(Margin::same(6)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut a.visible, "").on_hover_text("Show / hide").changed() {
-                        ed.accessories_dirty = true;
-                    }
-                    ui.label(RichText::new(&a.acc.name).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("🗑").on_hover_text("Remove").clicked() {
-                            remove = Some(i);
-                        }
-                    });
-                });
-                ui.label(RichText::new(format!("{} triangles{}", a.acc.triangles.len(), if a.acc.color.is_empty() { "" } else { " · painted" })).size(11.0).color(TEXT_DIM));
-            });
-            ui.add_space(4.0);
-        }
-        if let Some(i) = remove {
-            let a = ed.accessories.remove(i);
-            ed.status = format!("Removed accessory “{}”", a.acc.name);
-            ed.accessories_dirty = true;
-        }
-    });
-}
-
-fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
+pub(crate) fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
     if ed.bridge.open_dialog {
         let mut open = true;
         let mut go = false;
@@ -891,61 +682,131 @@ fn bridge_windows(ctx: &egui::Context, ed: &mut Editor) {
     }
 }
 
-fn pose_panel(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
-    use oxy_io::export::BindPose;
-    Frame::NONE.inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
-        let Some(rig) = &ed.asset.rig else {
-            ui.label(RichText::new("This character has no skeleton. Rebuild the bundle with tools/fetch-assets.sh.").color(TEXT_DIM));
-            return;
-        };
-        ui.label(RichText::new(format!("{} · {} bones", rig.name, rig.bones.len())).size(11.5).color(TEXT_DIM));
-        ui.add_space(6.0);
-        ui.label(RichText::new("Preview pose").strong());
-        ui.label(RichText::new("The skeleton refits to every morph; poses only affect the viewport unless exported as the bind pose.").size(11.0).color(TEXT_DIM));
-        ui.add_space(4.0);
-        let mut chosen = None;
-        ui.horizontal_wrapped(|ui| {
-            for (i, p) in oxy_rig::pose::PRESETS.iter().enumerate() {
-                if ui.add(egui::Button::selectable(ed.pose == i, p.name).min_size(Vec2::new(96.0, 26.0))).clicked() {
-                    chosen = Some(i);
-                }
-            }
-        });
-        if let Some(i) = chosen {
+pub(crate) fn pose_list(ui: &mut egui::Ui, ed: &mut Editor) {
+    if ed.asset.rig.is_none() {
+        ui.label(
+            RichText::new(
+                "This character has no skeleton. Rebuild the bundle with tools/fetch-assets.sh.",
+            )
+            .color(TEXT_DIM),
+        );
+        return;
+    }
+    for (i, p) in oxy_rig::pose::PRESETS.iter().enumerate() {
+        if theme::selectable_row(ui, i, p.name, "", ed.pose == i).clicked() {
             ed.set_pose(i);
         }
-        ui.add_space(4.0);
-        ui.checkbox(&mut ed.show_skeleton, "Show skeleton");
-
-        ui.add_space(12.0);
-        ui.separator();
-        ui.label(RichText::new("Export (.glb)").strong());
-        ui.add_space(2.0);
-        let export = &mut ed.export;
-        ui.checkbox(&mut export.skeleton, "Skeleton and skin weights");
-        ui.add_enabled_ui(export.skeleton, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Bind pose");
-                ui.selectable_value(&mut export.bind_pose, BindPose::Rest, "Rest (A-pose)");
-                ui.selectable_value(&mut export.bind_pose, BindPose::TPose, "T-pose");
-            });
-        });
-        ui.checkbox(&mut export.blendshapes, "Sculpted morphs as blendshapes")
-            .on_hover_text("Off: sculpts are baked into the mesh. On: each sculpt becomes a named morph target at its current weight.");
-        let accessories = ed.accessories.iter().filter(|a| a.visible).count();
-        ui.label(
-            RichText::new(format!("Includes the body{}.", if accessories > 0 { format!(" and {accessories} accessory mesh(es), skinned to the nearest body vertex") } else { String::new() }))
-                .size(11.0)
-                .color(TEXT_DIM),
-        );
-        ui.add_space(6.0);
-        if ui.add(egui::Button::new("⬇ Export .glb").min_size(Vec2::new(140.0, 28.0))).clicked() {
-            *export_requested = true;
-        }
-    });
+    }
 }
 
-fn open_dialog(ed: &mut Editor, kind: PathDialog) {
+pub(crate) fn pose_properties(ui: &mut egui::Ui, ed: &mut Editor) {
+    let Some(rig) = &ed.asset.rig else {
+        ui.label(
+            RichText::new(
+                "This character has no skeleton. Rebuild the bundle with tools/fetch-assets.sh.",
+            )
+            .color(TEXT_DIM),
+        );
+        return;
+    };
+    ui.label(
+        RichText::new(format!("{} · {} bones", rig.name, rig.bones.len()))
+            .size(11.5)
+            .color(TEXT_DIM),
+    );
+    ui.add_space(6.0);
+    ui.label(
+        RichText::new(
+            "The skeleton refits to every morph. Poses only affect the viewport unless you export that pose as the bind pose.",
+        )
+        .size(11.0)
+        .color(TEXT_DIM),
+    );
+    ui.add_space(6.0);
+    ui.checkbox(&mut ed.show_skeleton, "Show skeleton");
+}
+
+pub(crate) fn export_summary(ui: &mut egui::Ui, ed: &Editor) {
+    use oxy_io::export::BindPose;
+    let e = &ed.export;
+    let bind = match e.bind_pose {
+        BindPose::Rest => "Rest (A-pose)",
+        BindPose::TPose => "T-pose",
+    };
+    let on = |v: bool| if v { "on" } else { "off" };
+    let accessories = ed.accessories.iter().filter(|a| a.visible).count();
+    for line in [
+        format!("Skeleton and weights: {}", on(e.skeleton)),
+        format!("Bind pose: {bind}"),
+        format!("Sculpts as blendshapes: {}", on(e.blendshapes)),
+        format!("Baked textures: {}", on(e.textures)),
+        format!("Texture size: {}", e.texture_size),
+        format!("Eyes: {}", on(e.eyes)),
+        format!("Visible accessories: {accessories}"),
+    ] {
+        ui.label(RichText::new(line).size(12.5));
+        ui.add_space(2.0);
+    }
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new("Export writes a .glb under exports/.")
+            .size(11.0)
+            .color(TEXT_DIM),
+    );
+}
+
+pub(crate) fn export_controls(ui: &mut egui::Ui, ed: &mut Editor, export_requested: &mut bool) {
+    use oxy_io::export::BindPose;
+    let export = &mut ed.export;
+    ui.checkbox(&mut export.skeleton, "Skeleton and skin weights");
+    ui.add_enabled_ui(export.skeleton, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Bind pose");
+            ui.selectable_value(&mut export.bind_pose, BindPose::Rest, "Rest (A-pose)");
+            ui.selectable_value(&mut export.bind_pose, BindPose::TPose, "T-pose");
+        });
+    });
+    ui.checkbox(&mut export.blendshapes, "Sculpted morphs as blendshapes").on_hover_text(
+        "Off: sculpts are baked into the mesh. On: each sculpt becomes a named morph target at its current weight.",
+    );
+    ui.checkbox(&mut export.textures, "Bake and embed textures");
+    ui.add_enabled_ui(export.textures, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Size");
+            for size in [1024u32, 2048, 4096] {
+                ui.selectable_value(&mut export.texture_size, size, size.to_string());
+            }
+        });
+    });
+    ui.checkbox(&mut export.eyes, "Include eyes");
+    let accessories = ed.accessories.iter().filter(|a| a.visible).count();
+    ui.label(
+        RichText::new(format!(
+            "Includes the body{}.",
+            if accessories > 0 {
+                format!(" and {accessories} accessory mesh(es), skinned to the nearest body vertex")
+            } else {
+                String::new()
+            }
+        ))
+        .size(11.0)
+        .color(TEXT_DIM),
+    );
+    ui.add_space(6.0);
+    if ui
+        .add(egui::Button::new("Export .glb").min_size(Vec2::new(140.0, 28.0)))
+        .clicked()
+    {
+        *export_requested = true;
+    }
+    ui.label(
+        RichText::new("Saves into the exports/ folder.")
+            .size(11.0)
+            .color(TEXT_DIM),
+    );
+}
+
+pub(crate) fn open_dialog(ed: &mut Editor, kind: PathDialog) {
     let path = match kind {
         PathDialog::SaveAs => ed.default_project_path(),
         PathDialog::Open => ed
@@ -960,7 +821,7 @@ fn open_dialog(ed: &mut Editor, kind: PathDialog) {
     s.dialog = Some(kind);
 }
 
-fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
+pub(crate) fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
     use egui::{Key, KeyboardShortcut, Modifiers};
     if ctx.egui_wants_keyboard_input() {
         return; // typing in a text field
@@ -987,7 +848,7 @@ fn shortcuts(ctx: &egui::Context, ed: &mut Editor) {
     }
 }
 
-fn document_windows(ctx: &egui::Context, ed: &mut Editor) {
+pub(crate) fn document_windows(ctx: &egui::Context, ed: &mut Editor) {
     // Open / Save as.
     if let Some(kind) = ed.session().dialog {
         let (title, button) = match kind {
@@ -1163,80 +1024,146 @@ pub const IRIS_PRESETS: &[(&str, [f32; 3])] = &[
     ("Grey", [0.30, 0.33, 0.36]),
 ];
 
-fn material_panel(ui: &mut egui::Ui, ed: &mut Editor) {
-    Frame::NONE.inner_margin(Margin::symmetric(8, 6)).show(ui, |ui| {
-        if ed.asset.render.is_none() {
-            ui.label(RichText::new("This bundle has no UVs; rebuild it with tools/fetch-assets.sh for textured skin.").color(TEXT_DIM));
-            ui.add_space(6.0);
-        }
-        ui.label(RichText::new("Skin").strong());
-        ui.horizontal_wrapped(|ui| {
-            for (name, rgb) in SKIN_TONES {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
-                ui.painter().rect_filled(rect, CornerRadius::same(4), egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]));
-                if ed.skin == *rgb || resp.hovered() {
-                    ui.painter().rect_stroke(rect, CornerRadius::same(4), Stroke::new(2.0, ACCENT), StrokeKind::Outside);
+/// Swatches for the upper material card.
+pub(crate) fn material_browser(ui: &mut egui::Ui, ed: &mut Editor, section: MaterialSection) {
+    if ed.asset.render.is_none() {
+        ui.label(
+            RichText::new(
+                "This bundle has no UVs; rebuild it with tools/fetch-assets.sh for textured skin.",
+            )
+            .color(TEXT_DIM),
+        );
+        ui.add_space(6.0);
+    }
+    match section {
+        MaterialSection::Skin => {
+            ui.horizontal_wrapped(|ui| {
+                for (name, rgb) in SKIN_TONES {
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+                    ui.painter().circle_filled(
+                        rect.center(),
+                        12.0,
+                        egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]),
+                    );
+                    if ed.skin == *rgb || resp.hovered() {
+                        ui.painter()
+                            .circle_stroke(rect.center(), 13.0, Stroke::new(2.0, ACCENT));
+                    }
+                    if resp.on_hover_text(*name).clicked() {
+                        ed.skin = *rgb;
+                    }
                 }
-                if resp.on_hover_text(*name).clicked() {
-                    ed.skin = *rgb;
-                }
-            }
-            color_button(ui, &mut ed.skin);
-        });
-        let s = &mut ed.material.skin;
-        amount_row(ui, "Variation", &mut s.variation, None);
-        amount_row(ui, "Detail", &mut s.detail, None);
-        ui.horizontal(|ui| {
-            ui.add_sized([86.0, 18.0], egui::Label::new("Roughness"));
-            ui.spacing_mut().slider_width = (ui.available_width() - 50.0).max(60.0);
-            ui.add(egui::Slider::new(&mut s.roughness, 0.25..=0.85).fixed_decimals(2));
-        });
-        amount_row(ui, "Freckles", &mut s.freckles, Some(&mut s.freckle_color));
-        amount_row(ui, "Blush", &mut s.blush, Some(&mut s.blush_color));
-        amount_row(ui, "Eye shadow", &mut s.eye_shadow, Some(&mut s.eye_shadow_color));
-        amount_row(ui, "Lips", &mut s.lips, Some(&mut s.lip_color));
-        if ui.button("New pattern").on_hover_text("Re-seed the procedural variation").clicked() {
-            s.seed = s.seed.wrapping_add(1);
-        }
-
-        ui.add_space(10.0);
-        ui.separator();
-        ui.label(RichText::new("Eyes").strong());
-        let e = &mut ed.material.eyes;
-        ui.horizontal_wrapped(|ui| {
-            for (name, rgb) in IRIS_PRESETS {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
-                ui.painter().circle_filled(rect.center(), 11.0, egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]));
-                if e.iris == *rgb || resp.hovered() {
-                    ui.painter().circle_stroke(rect.center(), 12.0, Stroke::new(2.0, ACCENT));
-                }
-                if resp.on_hover_text(*name).clicked() {
-                    e.iris = *rgb;
-                }
-            }
-            color_button(ui, &mut e.iris);
-        });
-        let old_size = e.size;
-        ui.add(egui::Slider::new(&mut e.iris_angle, 0.45..=0.65).text("Iris size"));
-        ui.add(egui::Slider::new(&mut e.pupil, 0.2..=0.6).text("Pupil"));
-        ui.add(egui::Slider::new(&mut e.size, 0.16..=0.22).text("Eyeball size"));
-        if e.size != old_size {
-            ed.dirty = true; // eye geometry
-        }
-
-        ui.add_space(10.0);
-        ui.separator();
-        ui.label(RichText::new("Export").strong());
-        ui.checkbox(&mut ed.export.textures, "Bake and embed textures");
-        ui.add_enabled_ui(ed.export.textures, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Size");
-                for size in [1024u32, 2048, 4096] {
-                    ui.selectable_value(&mut ed.export.texture_size, size, size.to_string());
-                }
+                let _ = color_button(ui, &mut ed.skin);
             });
-        });
-        ui.checkbox(&mut ed.export.eyes, "Include eyes");
-        ui.label(RichText::new("Skin textures are generated from these settings (no image files), so they follow any body shape.").size(11.0).color(TEXT_DIM));
-    });
+        }
+        MaterialSection::Eyes => {
+            let e = &mut ed.material.eyes;
+            ui.horizontal_wrapped(|ui| {
+                for (name, rgb) in IRIS_PRESETS {
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+                    ui.painter().circle_filled(
+                        rect.center(),
+                        12.0,
+                        egui::Rgba::from_rgb(rgb[0], rgb[1], rgb[2]),
+                    );
+                    if e.iris == *rgb || resp.hovered() {
+                        ui.painter()
+                            .circle_stroke(rect.center(), 13.0, Stroke::new(2.0, ACCENT));
+                    }
+                    if resp.on_hover_text(*name).clicked() {
+                        e.iris = *rgb;
+                    }
+                }
+                let _ = color_button(ui, &mut e.iris);
+            });
+        }
+        MaterialSection::Bake => {
+            ui.label(
+                RichText::new(
+                    "Skin textures are generated from these settings (no image files), so they follow any body shape.",
+                )
+                .size(11.5)
+                .color(TEXT_DIM),
+            );
+            ui.add_space(6.0);
+            let e = &ed.export;
+            ui.label(format!("Bake: {}", if e.textures { "on" } else { "off" }));
+            ui.label(format!("Size: {}", e.texture_size));
+            ui.label(format!(
+                "Eyes: {}",
+                if e.eyes { "included" } else { "omitted" }
+            ));
+        }
+    }
+}
+
+/// Sliders and export toggles for the material properties card.
+pub(crate) fn material_properties(ui: &mut egui::Ui, ed: &mut Editor, section: MaterialSection) {
+    match section {
+        MaterialSection::Skin => {
+            let s = &mut ed.material.skin;
+            amount_row(ui, "Variation", &mut s.variation, None);
+            amount_row(ui, "Detail", &mut s.detail, None);
+            ui.horizontal(|ui| {
+                ui.add_sized([86.0, 18.0], egui::Label::new("Roughness"));
+                ui.spacing_mut().slider_width = (ui.available_width() - 50.0).max(60.0);
+                ui.add(egui::Slider::new(&mut s.roughness, 0.25..=0.85).fixed_decimals(2));
+            });
+            amount_row(ui, "Freckles", &mut s.freckles, Some(&mut s.freckle_color));
+            amount_row(ui, "Blush", &mut s.blush, Some(&mut s.blush_color));
+            amount_row(
+                ui,
+                "Eye shadow",
+                &mut s.eye_shadow,
+                Some(&mut s.eye_shadow_color),
+            );
+            amount_row(ui, "Lips", &mut s.lips, Some(&mut s.lip_color));
+            if ui
+                .button("New pattern")
+                .on_hover_text("Re-seed the procedural variation")
+                .clicked()
+            {
+                s.seed = s.seed.wrapping_add(1);
+            }
+        }
+        MaterialSection::Eyes => {
+            let e = &mut ed.material.eyes;
+            let old_size = e.size;
+            ui.add(egui::Slider::new(&mut e.iris_angle, 0.45..=0.65).text("Iris size"));
+            ui.add(egui::Slider::new(&mut e.pupil, 0.2..=0.6).text("Pupil"));
+            ui.add(egui::Slider::new(&mut e.size, 0.16..=0.22).text("Eyeball size"));
+            if e.size != old_size {
+                ed.dirty = true;
+            }
+        }
+        MaterialSection::Bake => {
+            ui.checkbox(&mut ed.export.textures, "Bake and embed textures");
+            ui.add_enabled_ui(ed.export.textures, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Size");
+                    for size in [1024u32, 2048, 4096] {
+                        ui.selectable_value(&mut ed.export.texture_size, size, size.to_string());
+                    }
+                });
+            });
+            ui.checkbox(&mut ed.export.eyes, "Include eyes");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mode_switch_lists_the_existing_editors() {
+        let labels: Vec<_> = RightMode::ALL
+            .iter()
+            .copied()
+            .map(RightMode::label)
+            .collect();
+        assert_eq!(labels, ["Morph", "Material", "Pose", "Export"]);
+        assert_eq!(RightMode::default(), RightMode::Morph);
+        assert!(!UiState::default().shelf_collapsed);
+    }
 }
