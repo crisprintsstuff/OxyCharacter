@@ -9,6 +9,32 @@ with sliders, auto-refit its skeleton, dress it, and export rigged glTF.
 - **[docs/PLAN.md](docs/PLAN.md)** — scope, architecture and algorithms
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** · **[AGENTS.md](AGENTS.md)** (AI agents) · [docs/TESTING.md](docs/TESTING.md) · [docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md) · [CHANGELOG.md](CHANGELOG.md)
 
+## Download
+
+Prebuilt packages are published on [GitHub Releases](https://github.com/crisprintsstuff/OxyCharacter/releases) when a `v*` tag is pushed. The first version prepared in this tree is **v0.0.1-alpha**. Until that tag is pushed there is nothing to download; build from source under [Quick start](#quick-start). Notes for that version: [docs/release-notes/v0.0.1-alpha.md](docs/release-notes/v0.0.1-alpha.md).
+
+Each archive contains the editor (`oxycharacter`), the CLI (`oxy`), the CC0 character bundle, and the licence files. The programs do not download the bundle. `SHA256SUMS.txt` on the release lists the checksums.
+
+| Platform | File |
+|---|---|
+| Windows, install (Start Menu and uninstaller) | `OxyCharacter-v0.0.1-alpha-windows-x86_64-setup.exe` |
+| Windows, portable zip | `OxyCharacter-v0.0.1-alpha-windows-x86_64.zip` |
+| macOS, Apple Silicon and Intel | `OxyCharacter-v0.0.1-alpha-macos-universal.dmg` |
+| Linux x86_64 archive | `OxyCharacter-v0.0.1-alpha-linux-x86_64.tar.gz` |
+| Linux x86_64 AppImage | `OxyCharacter-v0.0.1-alpha-linux-x86_64.AppImage` |
+
+**Windows.** Run the setup exe for a per-user install (no administrator prompt), a Start Menu entry and an uninstaller. Projects then live in `%APPDATA%\OxyCharacter`. Or unzip the portable zip and run `oxycharacter.exe`; that folder has a `portable` marker, so projects stay in a `user` directory next to the exe. From any directory: `oxy info makehuman.oxyb`.
+
+**macOS.** Open the disk image and drag **OxyCharacter** to Applications. The command-line tool is `OxyCharacter.app/Contents/MacOS/oxy`. Builds are ad-hoc signed unless the project has configured Developer ID secrets, so Gatekeeper will block a downloaded app the first time. Right-click the app, choose **Open**, then **Open** again. Or, in Terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/OxyCharacter.app
+```
+
+**Linux.** Extract the tar.gz and run `./oxycharacter`. The archive is portable (`user/` beside the binaries). The AppImage launches the editor; `./OxyCharacter-v0.0.1-alpha-linux-x86_64.AppImage oxy info makehuman.oxyb` runs the CLI. The AppImage stores projects under `$XDG_DATA_HOME/oxycharacter` or `~/.local/share/oxycharacter`.
+
+You need a Vulkan driver. The packages were built on GitHub-hosted runners and the Linux editor was smoked under lavapipe; a Windows or macOS desktop GPU has not been tried.
+
 ## Quick start
 
 ```sh

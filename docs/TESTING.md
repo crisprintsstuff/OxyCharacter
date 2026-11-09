@@ -48,6 +48,15 @@ $B --dialog open --screenshot dialog.png --frames 40   # typed-path fallback (do
 `--frames N` takes the screenshot after N frames, then exits. **Look at the
 image** after any UI or rendering change. Software rendering runs at ~10 FPS.
 
+An installed binary does not use the working directory for the character
+bundle. It looks beside the executable, then in a macOS app's `Resources` and
+an AppImage's `usr/share/oxycharacter`, and only then at
+`assets/generated/makehuman.oxyb`. A checkout (this repo, recognised by
+`crates/oxy-app/Cargo.toml` and `tools/fetch-assets.sh`) still stores user
+files in `./user`. Anywhere else, user files follow the platform data
+directory unless a `portable` file sits next to the executable or
+`OXY_USER_DIR` is set. See [ADR 0010](adr/0010-release-packages.md).
+
 ## 4. Exported glTF
 
 ```bash
@@ -104,7 +113,18 @@ Live loop in the editor: run with `--send-oxybrush --frames 260 --screenshot …
 and save over the sent file from another process; the import dialog should
 appear in the screenshot.
 
-## 6. Reporting
+## 6. Release packages
+
+`.github/workflows/release.yml` builds the archives. A manual
+`workflow_dispatch` run does not publish. The Linux job extracts the tar.gz
+and the AppImage and runs `oxy info` from another directory, then launches the
+editor under Xvfb for a screenshot. The Windows job silent-installs, checks
+the Start Menu shortcuts, runs `oxy info`, and uninstalls. The macOS job
+mounts the disk image, checks both architectures, and runs `oxy info` from
+`Contents/MacOS`. That is not a substitute for opening the GUI on a Windows
+or macOS desktop.
+
+## 7. Reporting
 
 In PRs and summaries, list which of the above you ran. Don't claim results for
 steps you didn't run (real GPU, other OSes, other engines).

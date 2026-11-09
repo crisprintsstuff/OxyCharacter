@@ -140,6 +140,11 @@ behaviour), describe it as a spec and open it there. The end-to-end recipe
   branch, open a pull request (template: `.github/pull_request_template.md`),
   and let a maintainer merge it. Don't merge or approve your own PRs unless the
   maintainer explicitly asks.
+- **Releases.** A tag matching `v*` publishes a GitHub Release
+  (`.github/workflows/release.yml`). Cutting one means bumping the workspace
+  version, moving CHANGELOG *Unreleased* to that version, and writing
+  `docs/release-notes/<tag>.md` (see CONTRIBUTING.md). Do not create or push a
+  tag, and do not publish a release, unless the maintainer explicitly asks.
 - **Sign off** commits (`git commit -s`) and explain *why* in the body.
 - **Keep docs current in the same change:**
   [docs/ROADMAP.md](docs/ROADMAP.md) (status, "Last updated"),

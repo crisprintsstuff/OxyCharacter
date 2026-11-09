@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OxyCharacter
+GenericName=Character creator
+Comment=Parametric 3D character creator
+Exec=oxycharacter
+Icon=oxycharacter
+Categories=Graphics;3DGraphics;
+Terminal=false
+StartupWMClass=oxycharacter

@@ -116,7 +116,7 @@ pub struct WardrobeEntry {
 pub struct Project {
     pub format: String,
     pub version: u32,
-    /// Writer, e.g. `oxycharacter 0.1.0`.
+    /// Writer, e.g. `oxycharacter 0.0.1-alpha`.
     pub app: String,
     pub base: BaseRef,
     /// Parameter values that differ from the defaults.

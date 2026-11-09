@@ -1,0 +1,267 @@
+# Build release packages and, on a v* tag, publish a GitHub Release.
+#
+# workflow_dispatch builds the same artifacts and uploads them to the Actions
+# run. It does not publish a release. Pushing a tag v* does.
+#
+# Tags whose names contain -alpha, -beta or -rc are marked pre-releases.
+# macOS Developer ID signing and notarization run only when the Apple secrets
+# below are set; otherwise the app is ad-hoc signed and notarization is skipped.
+#
+# The character bundle is built once (tools/fetch-assets.sh, revision pinned in
+# tools/release/makehuman.rev) and shipped inside every package. The editor
+# does not download it.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bundle:
+    name: Character bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: bundle-cli
+          cache-on-failure: "true"
+      - name: Build the CLI and the CC0 bundle
+        run: |
+          set -euo pipefail
+          REV="$(tr -d '[:space:]' < tools/release/makehuman.rev)"
+          if [[ ! "$REV" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "tools/release/makehuman.rev must be a 40-character commit"
+            exit 1
+          fi
+          export MAKEHUMAN_REV="$REV"
+          tools/fetch-assets.sh
+          test -s assets/generated/makehuman.oxyb
+          test -s assets/generated/BUNDLE-REVISION.txt
+          test -s assets/generated/MakeHuman-LICENSE.ASSETS.md
+          grep -q "$REV" assets/generated/BUNDLE-REVISION.txt
+          mkdir -p upload
+          cp assets/generated/makehuman.oxyb upload/
+          cp assets/generated/BUNDLE-REVISION.txt upload/
+          cp assets/generated/MakeHuman-LICENSE.ASSETS.md upload/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: character-bundle
+          if-no-files-found: error
+          path: upload/
+
+  package:
+    name: ${{ matrix.platform }}
+    needs: bundle
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            target: x86_64-unknown-linux-gnu
+            extra_target: ""
+            cache_key: linux-x64
+          - os: windows-latest
+            platform: windows
+            target: x86_64-pc-windows-msvc
+            extra_target: ""
+            cache_key: windows-x64
+          - os: macos-14
+            platform: macos
+            target: aarch64-apple-darwin
+            extra_target: x86_64-apple-darwin
+            cache_key: macos-universal
+    env:
+      CARGO_TERM_COLOR: always
+      # Matches LSMinimumSystemVersion in tools/release/Info.plist. Empty on
+      # the Linux and Windows runners; rustc reads it only for Apple targets.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux libraries
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libxkbcommon-dev libvulkan-dev libasound2-dev libudev-dev \
+            mesa-vulkan-drivers xvfb patchelf file
+
+      - name: Inno Setup
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Toolchain
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add "${{ matrix.target }}"
+          if [ -n "${{ matrix.extra_target }}" ]; then
+            rustup target add "${{ matrix.extra_target }}"
+          fi
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ matrix.cache_key }}
+          cache-on-failure: "true"
+
+      - name: Download character bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: character-bundle
+          path: bundle
+
+      - name: Build release binaries
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "${{ matrix.target }}" -p oxy-app -p oxy-cli
+          mkdir -p dist/bin
+          if [ -n "${{ matrix.extra_target }}" ]; then
+            cargo build --locked --release --target "${{ matrix.extra_target }}" -p oxy-app -p oxy-cli
+            lipo -create \
+              "target/${{ matrix.target }}/release/oxycharacter" \
+              "target/${{ matrix.extra_target }}/release/oxycharacter" \
+              -output dist/bin/oxycharacter
+            lipo -create \
+              "target/${{ matrix.target }}/release/oxy" \
+              "target/${{ matrix.extra_target }}/release/oxy" \
+              -output dist/bin/oxy
+            echo "oxycharacter: $(lipo -info dist/bin/oxycharacter)"
+            echo "oxy: $(lipo -info dist/bin/oxy)"
+          else
+            suffix=""
+            if [ "${{ matrix.platform }}" = "windows" ]; then
+              suffix=".exe"
+            fi
+            cp "target/${{ matrix.target }}/release/oxycharacter${suffix}" "dist/bin/"
+            cp "target/${{ matrix.target }}/release/oxy${suffix}" "dist/bin/"
+          fi
+
+      - name: Version string
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Packaging ${VERSION}"
+
+      - name: Package
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARIZE_APPLE_ID: ${{ secrets.APPLE_NOTARIZE_APPLE_ID }}
+          APPLE_NOTARIZE_PASSWORD: ${{ secrets.APPLE_NOTARIZE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          chmod +x tools/release/*.sh
+          flat="$(mktemp -d)"
+          find bundle -type f -exec cp {} "$flat/" \;
+          tools/release/package.sh \
+            "${{ matrix.platform }}" \
+            "${{ steps.version.outputs.version }}" \
+            dist/bin \
+            "$flat" \
+            dist
+
+      - name: Check the packages
+        run: tools/release/verify.sh "${{ matrix.platform }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxycharacter-${{ matrix.platform }}
+          if-no-files-found: error
+          path: dist/OxyCharacter-*
+
+      - name: Upload Linux smoke screenshot
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-smoke-screenshot
+          path: /tmp/oxy-release-smoke.png
+          if-no-files-found: error
+
+  checksums:
+    name: Checksums
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: oxycharacter-*
+          merge-multiple: true
+          path: dist
+      - name: SHA-256
+        run: |
+          set -euo pipefail
+          # Artifact downloads may keep a directory prefix. Flatten first.
+          mkdir -p pkgs
+          find dist -type f -name 'OxyCharacter-*' -exec cp {} pkgs/ \;
+          cd pkgs
+          ls -lh
+          test -f "$(echo OxyCharacter-*-linux-x86_64.tar.gz)"
+          test -f "$(echo OxyCharacter-*-linux-x86_64.AppImage)"
+          test -f "$(echo OxyCharacter-*-windows-x86_64.zip)"
+          test -f "$(echo OxyCharacter-*-windows-x86_64-setup.exe)"
+          test -f "$(echo OxyCharacter-*-macos-universal.dmg)"
+          sha256sum OxyCharacter-* | tee SHA256SUMS.txt
+          {
+            echo "### Release artifacts"
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxycharacter-checksums
+          path: pkgs/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="docs/release-notes/${TAG}.md"
+          if [[ ! -f "$NOTES" ]]; then
+            echo "missing release notes ${NOTES}"
+            exit 1
+          fi
+          args=(release create "$TAG" --title "OxyCharacter ${TAG}" --notes-file "$NOTES")
+          case "$TAG" in
+            *-alpha*|*-beta*|*-rc*) args+=(--prerelease) ;;
+          esac
+          shopt -s nullglob
+          files=(pkgs/OxyCharacter-* pkgs/SHA256SUMS.txt)
+          if [[ "${#files[@]}" -lt 6 ]]; then
+            echo "expected the five packages and SHA256SUMS.txt, found ${#files[@]}"
+            printf ' %q\n' "${files[@]}"
+            exit 1
+          fi
+          gh "${args[@]}" "${files[@]}"

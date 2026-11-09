@@ -1,0 +1,48 @@
+OxyCharacter
+============
+
+This folder contains:
+
+- oxycharacter — the editor (oxycharacter.exe on Windows)
+- oxy — the command-line tool (oxy.exe on Windows)
+- makehuman.oxyb — the CC0 base character (mesh, morphs, skeleton)
+- LICENSE-MIT, LICENSE-APACHE — licences for the code
+- LICENSES.md — asset licence ledger
+- MakeHuman-LICENSE.ASSETS.md — the CC0 statement for the base character data
+- BUNDLE-REVISION.txt — the MakeHuman data revision the bundle was built from
+
+The editor looks for makehuman.oxyb next to the executable. On macOS that file
+is inside OxyCharacter.app/Contents/Resources. Inside the AppImage it is under
+usr/share/oxycharacter. The programs do not download it.
+
+A file named "portable" next to the executable stores projects, autosave and
+OxyBrush files in a "user" folder beside the executable, so deleting the
+folder removes the app and its data. The Linux archive and the Windows zip
+include that marker. The Windows installer and the macOS app do not: they use
+the usual per-user folder instead.
+
+  Linux:   ~/.local/share/oxycharacter  (or $XDG_DATA_HOME/oxycharacter)
+  macOS:   ~/Library/Application Support/OxyCharacter
+  Windows: %APPDATA%\OxyCharacter
+
+Set OXY_USER_DIR to choose a different folder. A source checkout (this
+repository, with tools/fetch-assets.sh) still uses ./user and
+assets/generated/makehuman.oxyb.
+
+Command line, from any directory, when the bundle is installed with the tool:
+
+  oxy info makehuman.oxyb
+  oxy export makehuman.oxyb hero.glb --tpose gender=1 muscle=0.7
+
+macOS, after copying the app out of the disk image:
+
+  /Applications/OxyCharacter.app/Contents/MacOS/oxy info makehuman.oxyb
+
+If macOS says the app is damaged or from an unidentified developer, the build
+was not notarized. Right-click the app, choose Open, then Open again. Or, in
+Terminal:
+
+  xattr -dr com.apple.quarantine /Applications/OxyCharacter.app
+
+The same quarantine attribute can block the command-line tool inside the app.
+The GitHub Release notes for this version have the full install steps.

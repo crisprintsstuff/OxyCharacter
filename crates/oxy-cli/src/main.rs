@@ -14,16 +14,25 @@ use std::io::{BufReader, BufWriter};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use oxy_fit::{author_builtins, bind, fit, occlusion, transfer_weights, CoverMesh, FitMethod};
 use oxy_io::export::WornMesh;
-use oxy_io::{bundle, export, makehuman, obj, oxb, oxybrush, CharacterAsset};
+use oxy_io::{bundle, export, locate, makehuman, obj, oxb, oxybrush, CharacterAsset};
 
 fn load(path: &str) -> Result<CharacterAsset, String> {
-    bundle::read(BufReader::new(
-        File::open(path).map_err(|e| format!("{path}: {e}"))?,
-    ))
+    // A bare `makehuman.oxyb` is also accepted from another working directory
+    // when the file sits beside this executable (or in the macOS / AppImage
+    // install layout). An existing relative path still wins.
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("oxy"));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let resolved = locate::resolve_bundle_argument(Path::new(path), &exe, &cwd);
+    bundle::read(BufReader::new(File::open(&resolved).map_err(|e| {
+        format!(
+            "{}: {e} (from {path}; a bare file name is also tried beside the executable)",
+            resolved.display()
+        )
+    })?))
     .map_err(|e| e.to_string())
 }
 
