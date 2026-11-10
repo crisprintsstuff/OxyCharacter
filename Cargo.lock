@@ -3780,7 +3780,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-app"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "bevy",
  "bevy_egui",
@@ -3799,7 +3799,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-cli"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "oxy-fit",
  "oxy-io",
@@ -3813,7 +3813,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-fit"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "glam 0.29.3",
  "oxy-mesh",
@@ -3824,7 +3824,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-io"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "crc32fast",
  "glam 0.29.3",
@@ -3843,7 +3843,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-material"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "glam 0.29.3",
  "oxy-mesh",
@@ -3854,7 +3854,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-mesh"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "glam 0.29.3",
  "serde",
@@ -3863,7 +3863,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-morph"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "glam 0.29.3",
  "oxy-mesh",
@@ -3873,7 +3873,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-plugin"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "oxy-io",
  "oxy-mesh",
@@ -3886,7 +3886,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-project"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "glam 0.29.3",
  "oxy-fit",
@@ -3900,7 +3900,7 @@ dependencies = [
 
 [[package]]
 name = "oxy-rig"
-version = "0.0.1-alpha"
+version = "0.0.2-alpha"
 dependencies = [
  "glam 0.29.3",
  "oxy-mesh",

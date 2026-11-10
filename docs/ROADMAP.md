@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-10 (v0.0.1-alpha release prepared) · **Version:** 0.0.1-alpha
+**Last updated:** 2026-11-10 (v0.0.2-alpha prepared) · **Version:** 0.0.2-alpha
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -179,10 +179,11 @@ Photo-to-head fitting, cloth simulation preview, USD. (Scripting landed early as
 - **Poses are presets** only; no interactive bone posing or animation clips.
 - **Breast/cup and proportion targets** that depend on body type are not
   imported yet.
-- **v0.0.1-alpha is prepared, not tagged.** The maintainer pushes the
-  `v0.0.1-alpha` tag; `.github/workflows/release.yml` then publishes the
-  pre-release. Installers were exercised on the GitHub runners by the
-  release pull request's dry-run (plugins and expressions included). The editor GUI was smoked under Linux lavapipe
+- **Releases.** v0.0.1-alpha is published, but its Linux packages need
+  glibc 2.43; v0.0.2-alpha (prepared, tagged by the maintainer) rebuilds
+  them on Ubuntu 24.04 (glibc 2.39). Older distributions are not supported.
+  Installers were exercised on the GitHub runners by the release pull
+  requests' dry-runs. The editor GUI was smoked under Linux lavapipe
   from the packaged layout. It was not opened on a Windows or macOS desktop,
   and the macOS build is ad-hoc signed until Apple secrets are configured.
 - **Clothing is still rough.** The starter garments are generated shells.

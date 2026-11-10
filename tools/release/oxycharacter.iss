@@ -5,10 +5,10 @@
 ; keeps user files in %APPDATA%\OxyCharacter and an uninstall does not delete
 ; them. The portable zip is built separately and does include the marker.
 ;
-; ISCC /DMyVersion=0.0.1-alpha /DSourceDir=... /DOutDir=... oxycharacter.iss
+; ISCC /DMyVersion=0.0.2-alpha /DSourceDir=... /DOutDir=... oxycharacter.iss
 
 #ifndef MyVersion
-  #define MyVersion "0.0.1-alpha"
+  #define MyVersion "0.0.2-alpha"
 #endif
 #ifndef SourceDir
   #define SourceDir "staging"
