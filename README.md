@@ -127,6 +127,23 @@ oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpos
 
 ![The same clothes in the wave pose](docs/images/wardrobe-pose.png)
 
+## Plugins
+
+Python plugins drive the character: sliders, materials, poses, procedural
+sculpted morphs, wardrobe, export and projects. Run them from the **Plugins**
+menu (a run is one undo step) or headless:
+
+```sh
+oxy plugin assets/generated/makehuman.oxyb examples/plugins/crowd_export.py -- out/ 8
+```
+
+The SDK (`python/oxycharacter`) is pure Python; plugins talk to OxyCharacter
+over their stdin/stdout, with no network involved.
+
+![The pointed-ears example plugin, run from the editor](docs/images/plugin-pointed-ears.png) This is OxyCharacter's own
+API: plugins made for other character creators don't run unchanged, but
+[docs/PLUGINS.md](docs/PLUGINS.md) has the API reference and a porting guide.
+
 ## Projects, undo and autosave
 
 - **File › New / Open / Open recent / Save / Save as** — projects are small,
@@ -256,6 +273,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | `oxy-rig` | Joints anchored to body/aux points, bones, posing, skinning, weight transfer, pose presets |
 | `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
 | `oxy-material` | UV rasterizer, 3D noise, layer stack, skin regions from bone weights, texture encoding, eyeballs + iris |
+| `oxy-plugin` | Plugin API v1: stdio JSON-RPC protocol, `Host` trait + dispatcher, process runner, discovery |
 | `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |
 | `oxy-fit` | Clothing and hair: bind, refit, loose radial-basis fit, weight transfer, hide-under |
 | `oxy-cli` | `oxy` command-line tool |

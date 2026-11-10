@@ -87,6 +87,17 @@ textures. It does not replace the Khronos validator or the three.js shot.
 
 Unity and Unreal are still manual and have not been run.
 
+## 4b. Plugins
+
+```bash
+cargo test -p oxy-plugin              # protocol, dispatcher, and real Python plugins (skipped without python3)
+B=assets/generated/makehuman.oxyb
+cargo run --release -p oxy-cli -- plugin $B examples/plugins/body_report.py
+cargo run --release -p oxy-cli -- plugin $B examples/plugins/crowd_export.py -- /tmp/crowd 3
+(cd tools/validate-gltf && node validate.mjs /tmp/crowd/*.glb)
+./target/release/oxycharacter --head --run-plugin examples/plugins/pointed_ears.py --screenshot ears.png --frames 60
+```
+
 ## 5. OxyBrush round trip
 
 Build OxyBrush's CLI (`cargo build --release -p oxy-cli` in the OxyBrush repo,

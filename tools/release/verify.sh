@@ -51,7 +51,8 @@ case "$PLATFORM" in
     [[ -f "$tarball" && -f "$appimage" ]] || fail "expected a tar.gz and an AppImage in $OUT"
     listing="$(tar -tzf "$tarball")"
     require_listing "$listing" '/oxycharacter$' '/oxy$' '/makehuman.oxyb$' '/portable$' \
-      '/LICENSE-MIT$' '/LICENSE-APACHE$' '/LICENSES.md$' '/INSTALL.txt$' '/BUNDLE-REVISION.txt$'
+      '/LICENSE-MIT$' '/LICENSE-APACHE$' '/LICENSES.md$' '/INSTALL.txt$' '/BUNDLE-REVISION.txt$' \
+      '/python/oxycharacter/__init__.py$' '/plugins/athletic_build.py$'
     extracted="$(mktemp -d)"
     tar -xzf "$tarball" -C "$extracted"
     root="$(echo "$extracted"/OxyCharacter-*)"
@@ -102,6 +103,7 @@ case "$PLATFORM" in
     [[ -f "$app/Contents/Resources/LICENSE-APACHE" ]] || fail "LICENSE-APACHE missing"
     [[ -f "$app/Contents/Resources/LICENSES.md" ]] || fail "LICENSES.md missing"
     [[ -f "$app/Contents/Resources/INSTALL.txt" ]] || fail "INSTALL.txt missing"
+    [[ -f "$app/Contents/Resources/python/oxycharacter/__init__.py" ]] || fail "plugin SDK missing"
     [[ ! -e "$app/Contents/MacOS/portable" ]] || fail "the .app must not be a portable layout"
     for bin in oxycharacter oxy; do
       info="$(lipo -info "$app/Contents/MacOS/$bin")"
@@ -117,7 +119,8 @@ case "$PLATFORM" in
     [[ -f "$zip" && -f "$setup" ]] || fail "expected a zip and a setup exe in $OUT"
     listing="$(tar -tf "$zip")"
     require_listing "$listing" '/oxycharacter.exe$' '/oxy.exe$' '/makehuman.oxyb$' '/portable$' \
-      '/LICENSE-MIT$' '/LICENSE-APACHE$' '/LICENSES.md$' '/INSTALL.txt$'
+      '/LICENSE-MIT$' '/LICENSE-APACHE$' '/LICENSES.md$' '/INSTALL.txt$' \
+      '/python/oxycharacter/__init__.py$' '/plugins/athletic_build.py$'
     size="$(wc -c < "$setup")"
     if [[ "$size" -lt 10000000 ]]; then
       fail "installer is only $size bytes"

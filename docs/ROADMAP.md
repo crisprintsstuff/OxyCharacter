@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-09 (release packages) · **Version:** 0.0.1-alpha
+**Last updated:** 2026-11-10 (plugins) · **Version:** 0.0.1-alpha
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -18,7 +18,8 @@ Legend: ✅ done · 🚧 in progress · ⏳ planned · ❔ needs a decision
 | M3 | Projects, undo/redo, autosave & recovery | ✅ |
 | M4 | Materials: UVs, procedural skin, eyes, texture export | ✅ |
 | M5 | Clothing & hair: fitting, weight transfer, hide-under | ✅ |
-| M6 | Face & expressions | ⏳ |
+| P1 | Plugins: own Python API (stdio JSON-RPC), editor menu, headless runs | ✅ |
+| M6 | Face & expressions | ⏳ next |
 | M7 | Production export: LODs, atlases, engine presets, FBX | ⏳ |
 | M8+ | Stretch: photo-to-head, cloth preview, scripting, USD | ⏳ |
 
@@ -108,6 +109,20 @@ packages, collision between garment layers, cloth simulation, anisotropic
 highlights in the viewport (the export carries the extension; Bevy's standard
 material does not).
 
+### P1 — Plugins ✅
+- `oxy-plugin`: API v1 (sliders, materials, poses, body mesh/joints/measure,
+  procedural sculpted morphs, wardrobe, export, projects, notify) over the
+  plugin process's stdin/stdout (JSON-RPC, `Content-Length` frames); one
+  dispatcher for every host.
+- Python SDK `python/oxycharacter` (pure Python); example plugins; editor
+  Plugins menu with log window, a run = one undo step; `oxy plugin` headless;
+  SDK and examples shipped in release packages.
+- Running other character creators' plugins unchanged was considered and
+  declined (clean room, [ADR 0011](adr/0011-plugin-api.md)); a porting guide
+  is in [PLUGINS.md](PLUGINS.md).
+- Not yet: plugin UI (panels, dialogs), host→plugin change notifications,
+  plugin settings persistence.
+
 ## Next: M6 — Face & expressions ⏳
 
 ## Later
@@ -123,7 +138,7 @@ game skeleton option, FBX, `oxy export` batch; performance pass (GPU morph
 path while dragging, rayon elsewhere; < 16 ms per slider update).
 
 ### M8+ — Stretch ⏳
-Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
+Photo-to-head fitting, cloth simulation preview, USD. (Scripting landed early as P1; next for it: plugin panels/dialogs and change notifications.)
 
 ## Known gaps (cross-cutting)
 

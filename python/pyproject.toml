@@ -1,0 +1,13 @@
+[project]
+name = "oxycharacter"
+version = "0.1.0"
+description = "Plugin SDK for OxyCharacter (pure Python, no dependencies)"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.8"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["oxycharacter"]

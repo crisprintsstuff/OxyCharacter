@@ -65,6 +65,9 @@ pub struct Editor {
     /// Posed eyeball positions/normals from the last body update.
     pub eyes: Vec<(Vec<oxy_io::glam::Vec3>, Vec<oxy_io::glam::Vec3>)>,
     pub eyes_dirty: bool,
+    /// While a plugin runs: hold back undo snapshots and use this label for
+    /// the single step its whole run becomes.
+    pub batch_label: Option<String>,
     /// Document session (undo, file, autosave); set by `init_session`.
     pub session: Option<crate::document::Session>,
 }
@@ -133,6 +136,7 @@ impl Editor {
             material: oxy_io::material::MaterialParams::default(),
             eyes: Vec::new(),
             eyes_dirty: false,
+            batch_label: None,
             session: None,
         }
     }

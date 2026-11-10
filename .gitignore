@@ -6,3 +6,5 @@
 /tools/validate-gltf/node_modules/
 /tools/validate-gltf/*.glb
 /tools/validate-gltf/package-lock.json
+__pycache__/
+*.pyc

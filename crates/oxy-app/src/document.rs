@@ -403,6 +403,14 @@ impl Editor {
         }
     }
 
+    /// Commit pending edits as one step with an explicit label (plugins).
+    pub fn commit_history_labelled(&mut self, label: &str) {
+        let snap = self.snapshot();
+        if snap != *self.session().history.current() {
+            self.session_mut().history.commit(snap, label.to_owned());
+        }
+    }
+
     pub fn undo(&mut self) {
         let Some((state, label)) = self.session_mut().history.undo() else {
             return;
@@ -669,7 +677,7 @@ pub fn session_system(
         exit.write(AppExit::Success);
         return;
     }
-    if !state.pointer_busy {
+    if !state.pointer_busy && editor.batch_label.is_none() {
         editor.commit_history();
     }
     let dirty = editor.has_unsaved_changes();
@@ -784,6 +792,28 @@ mod tests {
         assert_eq!(ed.value("nose"), 0.0);
         ed.redo();
         assert_eq!(ed.value("nose"), 0.5);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn plugin_batch_is_one_labelled_undo_step() {
+        let dir = tmp("batch");
+        let mut ed = editor(&dir);
+        ed.batch_label = Some("Plugin: Test".into());
+        // Many edits over several frames; the frame loop skips commits while batching.
+        for v in [0.1, 0.4, 0.9] {
+            ed.set("nose", v);
+            if ed.batch_label.is_none() {
+                ed.commit_history();
+            }
+        }
+        ed.material.skin.freckles = 0.3;
+        let label = ed.batch_label.take().unwrap();
+        ed.commit_history_labelled(&label);
+        assert_eq!(ed.session().history.undo_label(), Some("Plugin: Test"));
+        ed.undo();
+        assert_eq!(ed.value("nose"), 0.0);
+        assert_eq!(ed.material.skin.freckles, 0.0, "the whole run is undone");
         std::fs::remove_dir_all(dir).ok();
     }
 

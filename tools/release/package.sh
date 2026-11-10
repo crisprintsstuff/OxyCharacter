@@ -60,6 +60,11 @@ copy_shared() {
   fi
   cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$ROOT/assets/LICENSES.md" "$dest/"
   cp "$ROOT/tools/release/INSTALL.txt" "$dest/INSTALL.txt"
+  # Plugin SDK and example plugins (found next to the binaries, or in
+  # ../share/oxycharacter and ../Resources).
+  mkdir -p "$dest/python/oxycharacter" "$dest/plugins"
+  cp "$ROOT"/python/oxycharacter/*.py "$dest/python/oxycharacter/"
+  cp "$ROOT"/examples/plugins/*.py "$dest/plugins/"
 }
 
 copy_flat() {

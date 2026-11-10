@@ -19,6 +19,7 @@ oxy-rig = { path = "crates/oxy-rig" }
 oxy-io = { path = "crates/oxy-io" }
 oxy-project = { path = "crates/oxy-project" }
 oxy-material = { path = "crates/oxy-material" }
+oxy-plugin = { path = "crates/oxy-plugin" }
 oxy-fit = { path = "crates/oxy-fit" }
 
 [workspace.lints.rust]

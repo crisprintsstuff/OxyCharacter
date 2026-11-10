@@ -5,7 +5,7 @@
 //!              [--hover PARAM_ID] [--head] [--size WxH]
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
 //!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--wardrobe-tab]
-//!              [--wear tee,pants,hair] [--iris NAME] [--open FILE.oxyc]
+//!              [--wear tee,pants,hair] [--iris NAME] [--open FILE.oxyc] [--run-plugin FILE.py]
 //!              [--save-as FILE.oxyc] [--close]
 //!              [--dialog open|save|export|import]
 //!              [--screenshot out.png [--frames N]]
@@ -17,6 +17,7 @@ mod document;
 mod editor;
 mod file_dialog;
 mod look;
+mod plugins;
 mod scene;
 mod shell;
 mod theme;
@@ -61,6 +62,7 @@ struct Args {
     wear: Option<String>,
     iris: Option<String>,
     open: Option<PathBuf>,
+    run_plugin: Option<PathBuf>,
     save_as: Option<PathBuf>,
     close: bool,
     /// Show the typed-path dialog (screenshot / automation). Skips the native dialog.
@@ -108,6 +110,7 @@ fn parse_args() -> Result<Args, String> {
             "--wear" => a.wear = Some(val()?),
             "--iris" => a.iris = Some(val()?),
             "--open" => a.open = Some(val()?.into()),
+            "--run-plugin" => a.run_plugin = Some(val()?.into()),
             "--save-as" => a.save_as = Some(val()?.into()),
             "--close" => a.close = true,
             "--dialog" => {
@@ -371,6 +374,10 @@ fn main() -> ExitCode {
         .insert_resource(CharacterHeight(1.7))
         .insert_resource(ViewportRect::default())
         .insert_resource(UiState {
+            plugins: crate::plugins::PluginState {
+                request: args.run_plugin.clone(),
+                ..Default::default()
+            },
             right_mode: if args.material_tab {
                 ui::RightMode::Material
             } else if args.pose_tab {
@@ -408,6 +415,7 @@ fn main() -> ExitCode {
                 document::session_system,
                 document::close_requested,
                 bridge::watch,
+                plugins::plugin_system,
                 bridge::file_drop,
                 scene::sync_accessories,
                 scene::sync_clothing,

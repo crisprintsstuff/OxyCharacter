@@ -54,6 +54,8 @@ Source: "{#SourceDir}\LICENSES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\INSTALL.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\BUNDLE-REVISION.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\MakeHuman-LICENSE.ASSETS.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs
+Source: "{#SourceDir}\plugins\*"; DestDir: "{app}\plugins"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\OxyCharacter"; Filename: "{app}\{#MyAppExe}"; Comment: "Parametric 3D character creator"
