@@ -17,9 +17,6 @@ on:
   push:
     tags:
       - "v*"
-    # Temporary: one dry-run of this branch before merge (does not publish).
-    branches:
-      - "claude/nifty-rubin-x3hfga"
   workflow_dispatch:
 
 # A second push to this branch replaces an in-progress dry-run. A tag push
