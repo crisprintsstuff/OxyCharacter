@@ -22,7 +22,7 @@ on:
     # dry-run is green: workflow_dispatch is 403 for the agent token, and
     # GitHub will not dispatch a workflow that has never existed on main.
     branches:
-      - "cursor/github-release-flow-6e8f"
+      - "claude/nifty-rubin-x3hfga"
   workflow_dispatch:
 
 # A second push to this branch replaces an in-progress dry-run. A tag push

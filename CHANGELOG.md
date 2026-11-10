@@ -6,6 +6,8 @@ development branch. Publishing a version is a git tag; see
 
 ## [Unreleased]
 
+## [0.0.1-alpha] — 2026-11-10
+
 ### Added
 - **Face and expressions (M6):** the 34 CC0 expression units, our own
   presets and mouth shapes (visemes), and gaze. Expressions are carried onto
@@ -15,13 +17,6 @@ development branch. Publishing a version is a git tag; see
   (`--no-expressions`). `oxy expressions`, `oxy export --expression`, editor
   `--face-tab --expression --gaze`, plugin methods `expression.list/get/set`.
   See [ADR 0012](docs/adr/0012-face-expressions.md).
-
-### Changed
-- glTF morph targets are written as sparse accessors when that is smaller.
-
-## [0.0.1-alpha] — 2026-11-09
-
-### Added
 - **Plugins (P1):** OxyCharacter's own Python plugin API over stdio
   JSON-RPC (`oxy-plugin`, API v1), pure-Python SDK (`python/oxycharacter`),
   example plugins, editor Plugins menu and log (a run is one undo step),
@@ -46,7 +41,7 @@ development branch. Publishing a version is a git tag; see
   `--wardrobe`. See [ADR 0009](docs/adr/0009-clothing-and-hair.md).
 - **Editor chrome:** the window follows the Oxy family layout (dark panels, blue
   accent, rounded cards) from `crates/oxy-app/src/theme.rs`, so it can stay in
-  step with OxyBrush. Morph, Material, Pose and Export are a centered mode
+  step with OxyBrush. Morph, Face, Material, Pose and Export are a centered mode
   switch; presets, skin tones, wardrobe and accessories sit on a bottom shelf;
   morph categories and sliders stack on the right; mesh stats and the OxyBrush
   link sit in the status bar. The typed-path file dialog uses the same theme.
@@ -92,6 +87,7 @@ development branch. Publishing a version is a git tag; see
   docs/TESTING.md, docs/CLEAN_ROOM.md; licence files; pinned toolchain.
 
 ### Changed
+- glTF morph targets are written as sparse accessors when that is smaller.
 - The editor's Export button asks for a `.glb` path (default
   `exports/<project>.glb`) instead of writing `exports/character-<time>.glb`
   with no prompt.
