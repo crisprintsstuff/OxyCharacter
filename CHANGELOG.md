@@ -6,6 +6,8 @@ development branch. Publishing a version is a git tag; see
 
 ## [Unreleased]
 
+## [0.0.2-alpha] — 2026-11-10
+
 ### Fixed
 - Linux packages are built on Ubuntu 24.04 instead of the newest runner, so
   they need glibc 2.39 rather than 2.43. The v0.0.1-alpha Linux tar.gz and
