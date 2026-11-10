@@ -33,7 +33,7 @@ xattr -dr com.apple.quarantine /Applications/OxyCharacter.app
 
 **Linux.** Extract the tar.gz and run `./oxycharacter`. The archive is portable (`user/` beside the binaries). The AppImage launches the editor; `./OxyCharacter-v0.0.1-alpha-linux-x86_64.AppImage oxy info makehuman.oxyb` runs the CLI. The AppImage stores projects under `$XDG_DATA_HOME/oxycharacter` or `~/.local/share/oxycharacter`.
 
-You need a Vulkan driver. The packages were built on GitHub-hosted runners and the Linux editor was smoked under lavapipe; a Windows or macOS desktop GPU has not been tried.
+You need a Vulkan driver. Linux packages need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later). The packages were built on GitHub-hosted runners and the Linux editor was smoked under lavapipe; a Windows or macOS desktop GPU has not been tried.
 
 ## Quick start
 

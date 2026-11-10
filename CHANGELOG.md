@@ -6,6 +6,12 @@ development branch. Publishing a version is a git tag; see
 
 ## [Unreleased]
 
+### Fixed
+- Linux packages are built on Ubuntu 24.04 instead of the newest runner, so
+  they need glibc 2.39 rather than 2.43. The v0.0.1-alpha Linux tar.gz and
+  AppImage did not start on Ubuntu 24.04 or other current distributions.
+  The package check now fails if a binary needs a newer glibc.
+
 ## [0.0.1-alpha] — 2026-11-10
 
 ### Added

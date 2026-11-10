@@ -56,6 +56,16 @@ case "$PLATFORM" in
     extracted="$(mktemp -d)"
     tar -xzf "$tarball" -C "$extracted"
     root="$(echo "$extracted"/OxyCharacter-*)"
+    # The runner's own glibc is whatever ubuntu-* ships; running `oxy info`
+    # there proves nothing about older systems. Check the symbol versions.
+    max_glibc="${OXY_MAX_GLIBC:-2.39}"
+    for b in oxy oxycharacter; do
+      need="$(objdump -T "$root/$b" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n 1)"
+      [[ -n "$need" ]] || fail "could not read the glibc version $b needs"
+      echo "$b needs glibc $need (limit $max_glibc)"
+      [[ "$(printf '%s\n%s\n' "$need" "$max_glibc" | sort -V | tail -n 1)" == "$max_glibc" ]] \
+        || fail "$b needs glibc $need, newer than the supported $max_glibc"
+    done
     info_from "$root/oxy"
     chmod +x "$appimage"
     export APPIMAGE_EXTRACT_AND_RUN=1
