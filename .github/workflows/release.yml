@@ -88,7 +88,9 @@ jobs:
             platform: linux
             target: x86_64-unknown-linux-gnu
             extra_target: ""
-            cache_key: linux-x64
+            # The image is part of the key: objects cached on a newer glibc
+            # must not be reused here.
+            cache_key: linux-x64-ubuntu2404
           - os: windows-latest
             platform: windows
             target: x86_64-pc-windows-msvc

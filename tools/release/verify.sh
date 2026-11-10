@@ -61,6 +61,7 @@ case "$PLATFORM" in
     max_glibc="${OXY_MAX_GLIBC:-2.39}"
     for b in oxy oxycharacter; do
       need="$(objdump -T "$root/$b" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n 1)"
+      [[ -n "$need" ]] || fail "could not read the glibc version $b needs"
       echo "$b needs glibc $need (limit $max_glibc)"
       [[ "$(printf '%s\n%s\n' "$need" "$max_glibc" | sort -V | tail -n 1)" == "$max_glibc" ]] \
         || fail "$b needs glibc $need, newer than the supported $max_glibc"
