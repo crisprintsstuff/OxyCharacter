@@ -17,12 +17,6 @@ on:
   push:
     tags:
       - "v*"
-    # Present while this branch is verified. A push here builds the artifacts
-    # and does not publish (publishing requires a v* tag). Removed once the
-    # dry-run is green: workflow_dispatch is 403 for the agent token, and
-    # GitHub will not dispatch a workflow that has never existed on main.
-    branches:
-      - "cursor/github-release-flow-6e8f"
   workflow_dispatch:
 
 # A second push to this branch replaces an in-progress dry-run. A tag push
