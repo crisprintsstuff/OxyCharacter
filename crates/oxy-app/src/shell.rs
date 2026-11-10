@@ -388,6 +388,7 @@ fn tool_options(
                     RightMode::Morph => morph_tools(ui, ed, focus),
                     RightMode::Material => material_tools(ui, ed),
                     RightMode::Pose => pose_tools(ui, ed, orbit, height),
+                    RightMode::Face => face_tools(ui, ed, orbit, height),
                     RightMode::Export => export_tools(ui, ed),
                 }
             });
@@ -462,6 +463,34 @@ fn pose_tools(ui: &mut egui::Ui, ed: &mut Editor, orbit: &mut Orbit, height: f32
     }
     if ui.button("Frame head").clicked() {
         *orbit = Orbit::head(height);
+    }
+}
+
+fn face_tools(ui: &mut egui::Ui, ed: &mut Editor, orbit: &mut Orbit, height: f32) {
+    let on = ed.expression.units.len();
+    ui.label(
+        RichText::new(if on == 0 {
+            "Neutral".to_string()
+        } else {
+            format!("{on} unit(s) active")
+        })
+        .size(11.5)
+        .color(TEXT_DIM),
+    );
+    if ui.button("Neutral").clicked() {
+        ed.set_expression(Default::default());
+    }
+    if ui.button("Look ahead").clicked() {
+        let mut e = ed.expression.clone();
+        e.gaze = [0.0, 0.0];
+        ed.set_expression(e);
+    }
+    ui.separator();
+    if ui.button("Frame head").clicked() {
+        *orbit = Orbit::head(height);
+    }
+    if ui.button("Frame body").clicked() {
+        *orbit = Orbit::full_body(height);
     }
 }
 
@@ -778,6 +807,14 @@ fn upper_card(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
                     ui::material_browser(ui, ed, state.material_section)
                 });
         }
+        RightMode::Face => {
+            ui.label(RichText::new("Face").strong().size(12.5));
+            ui.add_space(4.0);
+            egui::ScrollArea::vertical()
+                .id_salt("faces")
+                .auto_shrink([false, false])
+                .show(ui, |ui| ui::face_list(ui, ed));
+        }
         RightMode::Pose => {
             ui.label(RichText::new("Poses").strong().size(12.5));
             ui.add_space(4.0);
@@ -840,6 +877,12 @@ fn lower_card(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState) {
                 .show(ui, |ui| {
                     ui::material_properties(ui, ed, state.material_section)
                 });
+        }
+        RightMode::Face => {
+            egui::ScrollArea::vertical()
+                .id_salt("face-props")
+                .auto_shrink([false, false])
+                .show(ui, |ui| ui::face_properties(ui, ed));
         }
         RightMode::Pose => {
             egui::ScrollArea::vertical()

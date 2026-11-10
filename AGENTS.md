@@ -22,7 +22,7 @@ crates/
   oxy-morph    sliders, macro grids, parameter catalog → target weights           (no GPU)
   oxy-rig      joints/bones, refit, bind orientation, posing, skinning, presets   (no GPU)
   oxy-io       OBJ/target readers, MakeHuman CC0 importer, .oxyb bundle,
-               glTF export (skinned), .oxb read/write, OxyBrush bridge            (no GPU)
+               glTF export (skinned), expressions, .oxb read/write, OxyBrush bridge (no GPU)
   oxy-material UV rasterizer, noise, layer stack, skin/eye bakes, eyeball mesh     (no GPU)
   oxy-plugin   plugin API v1 (stdio JSON-RPC), Host trait, runner, discovery     (no GPU)
   oxy-project  .oxyc project format, migrations, snapshot undo history           (no GPU)
@@ -177,7 +177,7 @@ behaviour), describe it as a spec and open it there. The end-to-end recipe
   `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` (package
   `mesa-vulkan-drivers`). Software rendering gives ~10 FPS; that's expected.
 - The editor's scripted options (`--set`, `--select`, `--hover`, `--head`,
-  `--pose`, `--skeleton`, `--pose-tab`, `--material-tab`, `--iris`, `--import-oxb [--apply-import]`,
+  `--pose`, `--skeleton`, `--pose-tab`, `--face-tab`, `--expression smile`, `--gaze 20,5`, `--material-tab`, `--iris`, `--import-oxb [--apply-import]`,
   `--send-oxybrush`, `--run-plugin`, `--open`, `--save-as`, `--close`, `--screenshot`,
   `--frames`, `--wardrobe-tab`, `--wear tee,pants,hair`) cover most UI states without clicking. Set `OXY_USER_DIR` to a
   scratch folder so runs don't touch `user/`.

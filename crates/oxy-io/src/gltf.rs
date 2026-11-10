@@ -134,6 +134,51 @@ impl Builder {
     }
 }
 
+impl Builder {
+    /// Morph position deltas. Most targets move a small part of the body
+    /// (a face unit, a sculpt), so they are written as a sparse accessor
+    /// (glTF 2.0 §3.6.2.3) when that is smaller than the dense array.
+    fn morph_deltas(&mut self, d: &[Vec3]) -> usize {
+        let mut nz: Vec<u32> = (0..d.len() as u32)
+            .filter(|&i| d[i as usize] != Vec3::ZERO)
+            .collect();
+        if nz.len() * 16 >= d.len() * 12 {
+            return self.vec3s(d, true);
+        }
+        if nz.is_empty() {
+            nz.push(0); // a sparse accessor needs at least one entry
+        }
+        let values: Vec<Vec3> = nz.iter().map(|&i| d[i as usize]).collect();
+        let (mut lo, mut hi) = bounds(&values);
+        if nz.len() < d.len() {
+            lo = lo.min(Vec3::ZERO);
+            hi = hi.max(Vec3::ZERO);
+        }
+        let iv = self.view(nz.iter().flat_map(|i| i.to_le_bytes()).collect(), None);
+        let vv = self.view(
+            values
+                .iter()
+                .flat_map(|p| p.to_array())
+                .flat_map(f32::to_le_bytes)
+                .collect(),
+            None,
+        );
+        self.accessors.push(json!({
+            "componentType": FLOAT,
+            "count": d.len(),
+            "type": "VEC3",
+            "min": lo.to_array(),
+            "max": hi.to_array(),
+            "sparse": {
+                "count": nz.len(),
+                "indices": { "bufferView": iv, "componentType": UNSIGNED_INT },
+                "values": { "bufferView": vv },
+            },
+        }));
+        self.accessors.len() - 1
+    }
+}
+
 /// Write one mesh as a `.glb`.
 pub fn write_glb(mesh: &ExportMesh, w: impl Write) -> Result<()> {
     write_glb_scene(std::slice::from_ref(mesh), None, &[], w)
@@ -231,7 +276,7 @@ pub fn write_glb_scene(
                 .iter()
                 .map(|m| {
                     assert_eq!(m.deltas.len(), n);
-                    json!({ "POSITION": b.vec3s(&m.deltas, true) })
+                    json!({ "POSITION": b.morph_deltas(&m.deltas) })
                 })
                 .collect();
             primitive["targets"] = json!(targets);

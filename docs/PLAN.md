@@ -223,6 +223,11 @@ wardrobe tab without mesh thumbnails, and anisotropy on export only.
 - `oxy-expr`: expression set, deformation transport, expression preview sliders, viseme set.
 - Optional facial bones; eye/jaw rig.
 
+Shipped without a separate crate: units, presets and visemes live in
+`oxy_io::expression`, transport (local Procrustes fit) in
+`oxy_mesh::transport`; gaze turns the existing eye bones; the jaw is moved by
+the jaw-open unit, not a bone. See [ADR 0012](adr/0012-face-expressions.md).
+
 ### M7 — Production export (weeks 21–24)
 - LODs (`meshopt` simplification), texture atlasing, engine presets, FBX export, batch `oxy-cli export`.
 - Performance pass: GPU morph path for dragged sliders, rayon everywhere else; target < 16 ms per slider update.
@@ -276,7 +281,7 @@ OxyCharacter/
 │   ├── oxy-project/        # save format, undo                     (M3)
 │   ├── oxy-material/       # layered materials                     (M4)
 │   ├── oxy-fit/            # clothing/hair conforming              (M5) ✅
-│   ├── oxy-expr/           # expressions                           (M6)
+│   │                       # (M6 expressions: oxy-io::expression, oxy-mesh::transport) ✅
 │   ├── oxy-cli/            # headless batch tools                  (M1+)
 │   └── oxy-app/            # Bevy + egui editor                    (M1)
 ├── assets/                 # licensed content + LICENSES.md

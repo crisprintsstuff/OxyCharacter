@@ -125,11 +125,30 @@ class App:
     def set_pose(self, name):
         return self._ch.call("pose.set", name=name)
 
+    # -- face ---------------------------------------------------------------
+    def expressions(self):
+        """Units this character has, presets, visemes and the gaze limit."""
+        return self._ch.call("expression.list")
+
+    def expression(self):
+        """{"units": {id: weight}, "gaze": [yaw, pitch]} (degrees)."""
+        return self._ch.call("expression.get")
+
+    def set_expression(self, preset=None, viseme=None, units=None, gaze=None, replace=False):
+        """Apply a preset and/or viseme, then unit weights (0..1), then gaze.
+        With replace=True the other units are cleared first (gaze is kept)."""
+        p = {"replace": replace}
+        for k, v in (("preset", preset), ("viseme", viseme), ("units", units), ("gaze", gaze)):
+            if v is not None:
+                p[k] = list(v) if k == "gaze" else v
+        return self._ch.call("expression.set", **p)
+
     # -- body ---------------------------------------------------------------
-    def body_mesh(self, triangles=False):
+    def body_mesh(self, triangles=False, expression=False):
         """Rest-pose body: {"positions": [[x, y, z], ...], "triangles"?: [[a, b, c], ...]}.
-        Metres, Y up, the character faces +Z and stands at y = 0."""
-        return self._ch.call("body.mesh", triangles=triangles)
+        Metres, Y up, the character faces +Z and stands at y = 0. Neutral face
+        unless expression=True."""
+        return self._ch.call("body.mesh", triangles=triangles, expression=expression)
 
     def joints(self):
         """Bones with world-space head/tail positions, by name."""

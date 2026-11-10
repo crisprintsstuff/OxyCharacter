@@ -24,7 +24,9 @@ The gated tests in `crates/oxy-io/tests/roundtrip.rs` check the importer
 (sensible heights, every slider resolves, mirrors exist), the rig (validates,
 joints inside the body, refits with height, identity pose = rest mesh) and the
 rigged export (re-read with the `gltf` crate: world bind × inverse bind =
-identity, weights sum to 1, T-pose arms level). Without the variable they
+identity, weights sum to 1, T-pose arms level) and expressions (34 units,
+jaw open lowers the chin, transport is the identity on the base shape and
+stays close on the default one, named sparse blendshapes in the export). Without the variable they
 print "skipping" and pass.
 
 ## 3. Headless editor screenshots
@@ -40,6 +42,7 @@ $B --select Head/Nose --hover nose/nose-scale-horiz-decr-incr --head --screensho
 $B --pose-tab --pose wave --skeleton --screenshot pose.png
 $B --wardrobe-tab --wear tee,pants,hair --screenshot wardrobe.png
 $B --pose wave --wear tee,pants,hair --screenshot wardrobe-pose.png
+$B --face-tab --head --expression surprise --gaze 20,5 --screenshot face.png --frames 60
 $B --set gender=0.1 --save-as $OXY_USER_DIR/p.oxyc --screenshot a.png
 $B --open $OXY_USER_DIR/p.oxyc --set age=0.8 --close --screenshot prompt.png   # unsaved-changes prompt
 $B --dialog open --screenshot dialog.png --frames 40   # typed-path fallback (does not open a portal dialog)
@@ -64,8 +67,9 @@ cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/re
 cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/tpose.glb --tpose
 cargo run --release -p oxy-cli -- wardrobe assets/generated/makehuman.oxyb
 cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/dressed.glb --wear tee,pants,hair --texture-size 256
+cargo run --release -p oxy-cli -- export assets/generated/makehuman.oxyb /tmp/face.glb --tpose --expression smile --no-textures
 cd tools/validate-gltf && npm install
-node validate.mjs /tmp/rest.glb /tmp/tpose.glb              # must be 0 errors, 0 warnings
+node validate.mjs /tmp/rest.glb /tmp/tpose.glb /tmp/face.glb  # must be 0 errors, 0 warnings
 cp /tmp/rest.glb . && node threejs-shot.cjs "rest.glb,rest.glb:bend" /tmp/three.png
 ```
 

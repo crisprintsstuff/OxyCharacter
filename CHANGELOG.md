@@ -6,6 +6,19 @@ development branch. Publishing a version is a git tag; see
 
 ## [Unreleased]
 
+### Added
+- **Face and expressions (M6):** the 34 CC0 expression units, our own
+  presets and mouth shapes (visemes), and gaze. Expressions are carried onto
+  the current face shape. Editor **Face** mode; saved in projects (optional
+  `expression` field) and undoable. glTF export adds `expr.*`, `face.*` and
+  `viseme.*` blendshapes (sparse accessors) or bakes the expression
+  (`--no-expressions`). `oxy expressions`, `oxy export --expression`, editor
+  `--face-tab --expression --gaze`, plugin methods `expression.list/get/set`.
+  See [ADR 0012](docs/adr/0012-face-expressions.md).
+
+### Changed
+- glTF morph targets are written as sparse accessors when that is smaller.
+
 ## [0.0.1-alpha] — 2026-11-09
 
 ### Added

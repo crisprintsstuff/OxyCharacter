@@ -6,6 +6,7 @@
 //! * [`bundle`]    — our own compact binary container for a [`CharacterAsset`].
 //! * [`gltf`]      — glTF 2.0 binary (`.glb`) export.
 //! * [`export`]    — the character (+ accessories) as a rigged glTF.
+//! * [`expression`] — facial expression units, presets, visemes, transport.
 //! * [`material`]  — character skin/eye textures and eye meshes.
 //! * [`oxb`]       — OxyBrush project files (`.oxb`), read and write.
 //! * [`oxybrush`]  — the OxyBrush bridge: send a character, bring sculpts back.
@@ -16,6 +17,7 @@ pub use glam;
 
 pub mod bundle;
 pub mod export;
+pub mod expression;
 pub mod gltf;
 pub mod locate;
 pub mod makehuman;

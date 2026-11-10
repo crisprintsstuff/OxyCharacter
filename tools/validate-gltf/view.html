@@ -27,9 +27,19 @@ const scenes = await Promise.all(files.map(async (f, i) => {
     bone('upperleg01.L').rotateX(0.6);
   }
   if (op === 'morph0') g.scene.traverse(o => { if (o.morphTargetInfluences) o.morphTargetInfluences[0] = 0; });
+  // `file.glb:neutral` or `file.glb:face.smile` (any target name): set only
+  // that target to 1 and frame the head. `file.glb:head` keeps the file's weights.
+  const face = op && !['bend', 'morph0'].includes(op);
+  if (face && op !== 'head') g.scene.traverse(o => {
+    if (!o.morphTargetInfluences) return;
+    o.morphTargetInfluences.fill(0);
+    const i = o.morphTargetDictionary?.[op];
+    if (i !== undefined) { o.morphTargetInfluences[i] = 1; report.target = op; }
+  });
   g.scene.updateMatrixWorld(true);
   const cam = new THREE.PerspectiveCamera(30, 400 / H, 0.1, 50);
-  cam.position.set(0.9, 1.1, 3.6); cam.lookAt(0, 0.9, 0);
+  if (face) { cam.position.set(0.12, 1.62, 0.75); cam.lookAt(0, 1.58, 0); }
+  else { cam.position.set(0.9, 1.1, 3.6); cam.lookAt(0, 0.9, 0); }
   return { scene, cam, report: { file: name, op: op ?? 'none', ...report } };
 }));
 scenes.forEach((s, i) => { renderer.setViewport(i * 400, 0, 400, H); renderer.setScissor(i * 400, 0, 400, H); renderer.render(s.scene, s.cam); });

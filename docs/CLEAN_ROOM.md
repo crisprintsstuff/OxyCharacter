@@ -48,5 +48,8 @@ Process:
 | 2026-11-09 | linuxdeploy and appimagetool (GitHub continuous releases; MIT) | MIT tools, downloaded at build time | Linux AppImage of the editor and CLI | Not vendored. The AppRun script and the desktop file are original |
 | 2026-11-10 | OxyBrush plugin design (RFC 0007, Python SDK; sister project, MIT/Apache-2.0) | Permissive | Plugin SDK style (`attach()`, `# Name:` headers) | Ideas only; transport and API are our own ([ADR 0011](adr/0011-plugin-api.md)) |
 | 2026-11-10 | Request to run a commercial character creator's plugins | — | Considered and declined | No vendor API docs, SDKs or plugins were consulted; the API is our own and the porting guide maps tasks, not calls |
+| 2026-11-10 | MakeHuman `data/targets/expression/units/*` (same CC0 data checkout) | CC0-1.0 data | 34 facial expression units | Mean of the three ancestry files per unit; labels, presets and visemes are our own ([ADR 0012](adr/0012-face-expressions.md)) |
+| 2026-11-10 | P. Schönemann, "A generalized solution of the orthogonal Procrustes problem" (1966); N. Higham, "Computing the polar decomposition — with applications" (1986) | Published papers | Fitting a local rotation and scale to carry expressions onto a shaped face | Standard constructions reimplemented in `oxy_mesh::transport`; the papers were not fetched |
+| 2026-11-10 | Khronos glTF 2.0 specification, sparse accessors (§3.6.2.3) | Open standard | Smaller morph targets | Spec followed; checked with the Khronos validator |
 
 Add new rows at the bottom.
