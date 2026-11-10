@@ -5,6 +5,7 @@
 //!              [--hover PARAM_ID] [--head] [--size WxH]
 //!              [--import-oxb FILE.oxb [--apply-import]] [--send-oxybrush]
 //!              [--pose NAME] [--skeleton] [--pose-tab] [--material-tab] [--wardrobe-tab]
+//!              [--face-tab] [--expression smile,mouth-open:0.4] [--gaze YAW,PITCH]
 //!              [--wear tee,pants,hair] [--iris NAME] [--open FILE.oxyc] [--run-plugin FILE.py]
 //!              [--save-as FILE.oxyc] [--close]
 //!              [--dialog open|save|export|import]
@@ -57,6 +58,9 @@ struct Args {
     pose: Option<String>,
     skeleton: bool,
     pose_tab: bool,
+    face_tab: bool,
+    expression: Option<String>,
+    gaze: Option<[f32; 2]>,
     material_tab: bool,
     wardrobe_tab: bool,
     wear: Option<String>,
@@ -105,6 +109,14 @@ fn parse_args() -> Result<Args, String> {
             "--pose" => a.pose = Some(val()?),
             "--skeleton" => a.skeleton = true,
             "--pose-tab" => a.pose_tab = true,
+            "--face-tab" => a.face_tab = true,
+            "--expression" => a.expression = Some(val()?),
+            "--gaze" => {
+                let v = val()?;
+                let (y, p) = v.split_once(',').ok_or("--gaze expects YAW,PITCH in degrees")?;
+                let num = |s: &str| s.trim().parse::<f32>().map_err(|_| "--gaze expects numbers");
+                a.gaze = Some([num(y)?, num(p)?]);
+            }
             "--material-tab" => a.material_tab = true,
             "--wardrobe-tab" => a.wardrobe_tab = true,
             "--wear" => a.wear = Some(val()?),
@@ -191,6 +203,7 @@ fn export(mut state: ResMut<UiState>, mut editor: ResMut<Editor>) {
     let (accessories, worn, hidden) = ed.clothing_export();
     let opts = oxy_io::export::ExportOptions {
         skin_color: ed.skin,
+        expression: ed.expression.clone(),
         ..ed.export.clone()
     };
     let result = (|| {
@@ -290,6 +303,20 @@ fn main() -> ExitCode {
         editor.selected = sel;
     }
     editor.pinned_hover = args.hover.clone();
+    if args.expression.is_some() || args.gaze.is_some() {
+        let mut e =
+            match oxy_io::expression::Expression::parse(args.expression.as_deref().unwrap_or("")) {
+                Ok(e) => e,
+                Err(err) => {
+                    eprintln!("{err}");
+                    return ExitCode::FAILURE;
+                }
+            };
+        if let Some([y, p]) = args.gaze {
+            e.set_gaze(y, p);
+        }
+        editor.set_expression(e);
+    }
     if let Some(name) = &args.pose {
         match oxy_rig::pose::PRESETS
             .iter()
@@ -382,6 +409,8 @@ fn main() -> ExitCode {
                 ui::RightMode::Material
             } else if args.pose_tab {
                 ui::RightMode::Pose
+            } else if args.face_tab {
+                ui::RightMode::Face
             } else {
                 ui::RightMode::Morph
             },

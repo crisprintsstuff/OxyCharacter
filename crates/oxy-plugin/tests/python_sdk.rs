@@ -83,6 +83,9 @@ m = app.measure()
 assert abs(m["depth"] - 1.75) < 1e-5, m
 app.set_material(eyes={"iris": [0.1, 0.2, 0.3]})
 sid = app.add_morph("Lift", indices=[1], deltas=[[0, 0.5, 0]], value=0.5)
+e = app.set_expression(preset="smile", units={"mouth-open": 0.25}, gaze=(10, 2))
+assert e["units"]["mouth-open"] == 0.25 and e["gaze"] == [10, 2], e
+assert app.expression() == e
 app.notify(f"made {sid} with args {sys.argv[1:]}")
 "#,
     );
@@ -95,6 +98,8 @@ app.notify(f"made {sid} with args {sys.argv[1:]}")
     assert_eq!(h.params["nose"], 0.75);
     assert_eq!(h.material.eyes.iris, [0.1, 0.2, 0.3]);
     assert_eq!(h.params["custom/lift"], 0.5);
+    assert_eq!(h.expression.get("mouth-open"), 0.25);
+    assert_eq!(h.expression.gaze, [10.0, 2.0]);
     assert_eq!(h.notes, vec!["made custom/lift with args ['one', 'two']"]);
 }
 

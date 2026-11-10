@@ -214,6 +214,17 @@ impl Rig {
         local[bone] = (w0.inverse() * arc * w0).normalize();
     }
 
+    /// Turn `bone` by the world-space rotation `q` about its head, on top of
+    /// its current `local` rotation (parents must already be posed).
+    pub fn turn_world(&self, bind: &[Mat4], local: &mut [Quat], bone: usize, q: Quat) {
+        let rel = self.local_bind(bind);
+        let posed = self.pose_matrices(bind, local);
+        let parent = self.bones[bone].parent.map_or(Mat4::IDENTITY, |p| posed[p]);
+        let (_, w0, _) = (parent * rel[bone]).to_scale_rotation_translation();
+        let current = local.get(bone).copied().unwrap_or(Quat::IDENTITY);
+        local[bone] = (w0.inverse() * q * w0 * current).normalize();
+    }
+
     /// Linear blend skinning of positions and normals.
     pub fn skin_points(
         &self,

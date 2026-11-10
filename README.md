@@ -66,7 +66,7 @@ Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/
 ## Editor
 
 The window uses the same dark chrome as OxyBrush: a menu and a centered
-**Morph / Material / Pose / Export** switch, a tool-options bar, an icon rail,
+**Morph / Face / Material / Pose / Export** switch, a tool-options bar, an icon rail,
 the viewport, a stacked inspector, a bottom shelf and a status bar.
 
 - **Shelf:** body presets (procedural silhouette cards), skin-tone swatches
@@ -82,6 +82,30 @@ the viewport, a stacked inspector, a bottom shelf and a status bar.
   `exports/<project>.glb`) and includes whatever is worn.
 
 ![Region highlight](docs/images/editor-nose-highlight.png)
+
+## Face and expressions
+
+**Face** mode sets the expression: presets (*Smile, Big smile, Sad, Angry,
+Surprise, Fear, Disgust, Wink, Blink, Kiss*), mouth shapes for speech
+(*A, E, I, O, U, M B P, F V, L, S Z, CH SH, TH*), 34 unit sliders (brows,
+eyes, nose, mouth, neck; from the CC0 MakeHuman expression units) and gaze.
+Expressions are carried over to the current face shape, so they follow the
+morph sliders, and they are saved and undoable like everything else.
+
+Exports keep the face neutral and add every unit, preset and mouth shape as
+a named blendshape (`expr.mouth-open`, `face.smile`, `viseme.oh`, …), units at
+their current weight. They are written as sparse accessors, so the 55 targets
+add about 1 MB. `--no-expressions` bakes the current expression in instead.
+
+```sh
+oxy expressions assets/generated/makehuman.oxyb       # list units, presets, visemes
+oxy export assets/generated/makehuman.oxyb hero.glb --expression smile,mouth-open:0.2
+```
+
+![Face mode: surprise with gaze](docs/images/face-surprise.png)
+
+No teeth, tongue, eyelashes or brows yet, so an open mouth shows an empty
+interior. Gaze only turns the eyes in the viewport; it is not exported.
 
 ## Skin and eyes
 
@@ -129,7 +153,7 @@ oxy export assets/generated/makehuman.oxyb hero.glb --wear tee,pants,hair --tpos
 
 ## Plugins
 
-Python plugins drive the character: sliders, materials, poses, procedural
+Python plugins drive the character: sliders, materials, poses, expressions, procedural
 sculpted morphs, wardrobe, export and projects. Run them from the **Plugins**
 menu (a run is one undo step) or headless:
 
@@ -265,13 +289,15 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | M3 project files, undo/redo, autosave & recovery | ✅ |
 | M4 materials (UVs, procedural skin, eyes, textured glTF) | ✅ |
 | M5 clothing & hair (fit, hide-under, hair cards, export) | ✅ |
+| P1 plugins (own Python API over stdio, editor menu, headless) | ✅ |
+| M6 face & expressions (units, presets, visemes, gaze, blendshape export) | ✅ |
 
 | Crate | What it does |
 |---|---|
-| `oxy-mesh` | Mesh, sparse morph targets, blending, normals, topology correspondence |
+| `oxy-mesh` | Mesh, sparse morph targets, blending, normals, topology correspondence, delta transport |
 | `oxy-morph` | Sliders, macro grids with gains, parameter catalog |
 | `oxy-rig` | Joints anchored to body/aux points, bones, posing, skinning, weight transfer, pose presets |
-| `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, `.oxb` read/write, OxyBrush bridge |
+| `oxy-io` | OBJ / sparse-target import, MakeHuman CC0 importer, `.oxyb` bundle, `.glb` export, expressions, `.oxb` read/write, OxyBrush bridge |
 | `oxy-material` | UV rasterizer, 3D noise, layer stack, skin regions from bone weights, texture encoding, eyeballs + iris |
 | `oxy-plugin` | Plugin API v1: stdio JSON-RPC protocol, `Host` trait + dispatcher, process runner, discovery |
 | `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |

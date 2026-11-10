@@ -65,6 +65,10 @@ pub struct Editor {
     /// Posed eyeball positions/normals from the last body update.
     pub eyes: Vec<(Vec<oxy_io::glam::Vec3>, Vec<oxy_io::glam::Vec3>)>,
     pub eyes_dirty: bool,
+    /// Facial expression and gaze (part of the document).
+    pub expression: oxy_io::expression::Expression,
+    /// Expression units carried onto the current shape, keyed by the shape.
+    pub face_cache: Option<(u64, std::sync::Arc<oxy_io::expression::FaceShapes>)>,
     /// While a plugin runs: hold back undo snapshots and use this label for
     /// the single step its whole run becomes.
     pub batch_label: Option<String>,
@@ -136,9 +140,46 @@ impl Editor {
             material: oxy_io::material::MaterialParams::default(),
             eyes: Vec::new(),
             eyes_dirty: false,
+            expression: Default::default(),
+            face_cache: None,
             batch_label: None,
             session: None,
         }
+    }
+
+    /// Replace the expression (and gaze) and redraw.
+    pub fn set_expression(&mut self, e: oxy_io::expression::Expression) {
+        if e != self.expression {
+            self.expression = e;
+            self.dirty = true;
+        }
+    }
+
+    /// Expression units on the current shape `body` (cached per shape).
+    pub fn face_shapes(
+        &mut self,
+        body: &[oxy_io::glam::Vec3],
+    ) -> std::sync::Arc<oxy_io::expression::FaceShapes> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (k, v) in &self.params {
+            k.hash(&mut h);
+            v.to_bits().hash(&mut h);
+        }
+        self.asset.mesh.targets.len().hash(&mut h);
+        // Sculpted morphs can be replaced under the same id: include a sample.
+        for p in body.iter().step_by(97) {
+            p.to_array().map(f32::to_bits).hash(&mut h);
+        }
+        let key = h.finish();
+        if let Some((k, f)) = &self.face_cache {
+            if *k == key {
+                return f.clone();
+            }
+        }
+        let f = std::sync::Arc::new(oxy_io::expression::FaceShapes::new(&self.asset, body));
+        self.face_cache = Some((key, f.clone()));
+        f
     }
 
     pub fn set_pose(&mut self, index: usize) {
@@ -162,7 +203,16 @@ impl Editor {
             return (ev.body.clone(), normals.to_vec());
         };
         let bind = rig.bind_matrices(&ev.joints);
-        let local = oxy_rig::pose::solve(rig, &bind, &oxy_rig::pose::PRESETS[self.pose]);
+        let mut local = oxy_rig::pose::solve(rig, &bind, &oxy_rig::pose::PRESETS[self.pose]);
+        let gaze = self.expression.gaze;
+        if gaze != [0.0, 0.0] {
+            let q = oxy_io::expression::gaze_rotation(gaze);
+            for name in ["eye.L", "eye.R"] {
+                if let Some(b) = rig.bone_index(name) {
+                    rig.turn_world(&bind, &mut local, b, q);
+                }
+            }
+        }
         let posed = rig.pose_matrices(&bind, &local);
         for (i, b) in rig.bones.iter().enumerate() {
             let len = ev.joints[b.head].distance(ev.joints[b.tail]);
@@ -170,7 +220,7 @@ impl Editor {
             let tail = posed[i].transform_point3(Vec3::Y * len);
             self.skeleton_lines.push((head.to_array(), tail.to_array()));
         }
-        if self.pose == 0 {
+        if self.pose == 0 && gaze == [0.0, 0.0] {
             return (ev.body.clone(), normals.to_vec());
         }
         self.skin_mats = posed

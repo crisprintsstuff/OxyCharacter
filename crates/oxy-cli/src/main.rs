@@ -3,8 +3,9 @@
 //! ```text
 //! oxy import-makehuman <makehuman/data dir> <out.oxyb>
 //! oxy info <bundle.oxyb>
-//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...]
+//! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--expression smile,mouth-open:0.4] [--no-expressions] [--texture-size N] [--morphs DIR] [--wear tee,pants,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...]
 //! oxy wardrobe <bundle.oxyb>
+//! oxy expressions <bundle.oxyb>
 //! oxy plugin <bundle.oxyb> <script.py> [--open project.oxyc] [--morphs DIR] [-- script args ...]
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
@@ -126,6 +127,17 @@ fn run(args: &[String]) -> Result<(), String> {
         ["plugin", path, script, rest @ ..] => {
             run_plugin(path, script, rest)?;
         }
+        ["expressions", path] => {
+            use oxy_io::expression::{available, GROUPS, PRESETS, UNITS, VISEMES};
+            let a = load(path)?;
+            println!("{} of {} expression units in this bundle", available(&a).count(), UNITS.len());
+            for g in GROUPS {
+                let ids: Vec<&str> = available(&a).filter(|u| u.group == g).map(|u| u.id).collect();
+                println!("  {g}: {}", ids.join(", "));
+            }
+            println!("presets: {}", PRESETS.iter().map(|m| m.id).collect::<Vec<_>>().join(", "));
+            println!("visemes: {}", VISEMES.iter().map(|m| m.id).collect::<Vec<_>>().join(", "));
+        }
         ["wardrobe", path] => {
             let a = load(path)?;
             let ev = a.evaluate_full(&a.catalog.defaults());
@@ -160,6 +172,10 @@ fn run(args: &[String]) -> Result<(), String> {
                     "--blendshapes" => opts.blendshapes = true,
                     "--no-textures" => opts.textures = false,
                     "--no-eyes" => opts.eyes = false,
+                    "--no-expressions" => opts.expressions = false,
+                    "--expression" => {
+                        opts.expression = oxy_io::expression::Expression::parse(it.next().ok_or("--expression needs a name, e.g. smile or mouth-open:0.5")?)?;
+                    }
                     "--texture-size" => {
                         opts.texture_size = it.next().and_then(|v| v.parse().ok()).ok_or("--texture-size needs a number")?;
                     }
@@ -194,7 +210,7 @@ fn run(args: &[String]) -> Result<(), String> {
             );
         }
         _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | plugin <bundle> <script.py> [--open project.oxyc] [--morphs DIR] [-- args ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | expressions <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--expression smile,mouth-open:0.4] [--no-expressions] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | plugin <bundle> <script.py> [--open project.oxyc] [--morphs DIR] [-- args ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
         }
     }
     Ok(())
@@ -268,6 +284,7 @@ fn run_plugin(bundle: &str, script: &str, rest: &[&str]) -> Result<(), String> {
             .position(|x| x.name == project.pose)
             .unwrap_or(0);
         host.export = project.export.clone();
+        host.expression = project.expression.clone();
         let worn: Vec<String> = project
             .wardrobe
             .iter()
@@ -309,6 +326,7 @@ fn run_plugin(bundle: &str, script: &str, rest: &[&str]) -> Result<(), String> {
         p.skin = v.skin_tone;
         p.pose = oxy_rig::pose::PRESETS[v.pose].name.into();
         p.material = v.material.clone();
+        p.expression = v.expression.clone();
         p.custom_morphs = v
             .asset
             .catalog

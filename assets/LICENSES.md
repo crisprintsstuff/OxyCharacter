@@ -11,7 +11,7 @@ The editor and the CLI do not download it. See
 | Asset | Source | License | Notes | Date added |
 |---|---|---|---|---|
 | MakeHuman hm08 base mesh (`data/3dobjs/base.obj`, `body` group only) | https://github.com/makehumancommunity/makehuman | CC0-1.0 (released Sept 2020, see upstream `LICENSE.ASSETS.md`) | Fetched via sparse checkout of data dirs only; AGPL program code is never downloaded. Releases pin `tools/release/makehuman.rev` (currently `a8bc2d54ff0ac92e78ff71431b1023eda42bf482`) and redistribute the derived `.oxyb` | 2026-11-07 |
-| MakeHuman morph targets (`data/targets/**`) | same | CC0-1.0 | Expression, genital and body-type-dependent breast targets are not imported in M1 | 2026-11-07 |
+| MakeHuman morph targets (`data/targets/**`) | same | CC0-1.0 | Expression units (`expression/units/*`) are imported since M6 as the mean of the three ancestry files; genital and body-type-dependent breast targets are not imported | 2026-11-07 |
 | MakeHuman default skeleton + weights (`data/rigs/default.mhskel`, `default_weights.mhw`) | same | CC0-1.0 (stated in the files) | Joints, bone hierarchy, roll planes and skin weights; bone names kept | 2026-11-07 |
 | `docs/images/*.png` | Rendered by OxyCharacter from the CC0 assets above, plus original procedural clothing and hair (OxyBrush bridge shots: sculpt and cap from scripted OxyBrush sessions, still the 2026-11-07 captures) | CC0-1.0 | Editor screenshots. Re-rendered 2026-11-09 under lavapipe for the family chrome and wardrobe | 2026-11-07 |
 | Procedural wardrobe (T-shirt, trousers, skirt, hair cards, strand texture) | Generated at runtime by `oxy-fit` and `oxy-material` | MIT OR Apache-2.0, same as the code | Not stored as asset files; built from the current body | 2026-11-09 |

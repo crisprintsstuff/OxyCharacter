@@ -11,6 +11,7 @@ use oxy_material::hair::strand_textures;
 use oxy_morph::Params;
 use oxy_rig::{pose, skin_with, transfer_nearest, Influence};
 
+use crate::expression::{Expression, FaceShapes, PRESETS, VISEMES};
 use crate::gltf::{
     write_glb_scene, ExportImage, ExportMesh, ExportMorph, ExportSkeleton, MeshTextures,
 };
@@ -41,9 +42,16 @@ pub struct ExportOptions {
     pub texture_size: u32,
     /// Include eyeballs.
     pub eyes: bool,
+    /// Export facial expressions as blendshapes (`expr.*` units at their
+    /// current weight, `face.*` presets and `viseme.*` mouth shapes at 0).
+    /// Without it the current expression is baked into the body.
+    pub expressions: bool,
     /// Linear RGB skin color (set by the caller; projects store skin separately).
     #[serde(skip)]
     pub skin_color: [f32; 3],
+    /// Current facial expression (set by the caller; projects store it separately).
+    #[serde(skip)]
+    pub expression: Expression,
 }
 
 impl Default for ExportOptions {
@@ -55,7 +63,9 @@ impl Default for ExportOptions {
             textures: true,
             texture_size: 2048,
             eyes: true,
+            expressions: true,
             skin_color: [0.62, 0.40, 0.29],
+            expression: Expression::default(),
         }
     }
 }
@@ -115,6 +125,36 @@ struct Part {
     alpha_mask: bool,
     double_sided: bool,
     anisotropy: Option<f32>,
+}
+
+/// Named expression blendshapes on the base body: every unit (`expr.<id>`,
+/// at its current weight), then presets (`face.<id>`) and visemes
+/// (`viseme.<id>`) at weight 0.
+fn expression_morphs<'a>(
+    face: &'a FaceShapes,
+    current: &'a Expression,
+    n: usize,
+) -> impl Iterator<Item = (String, Vec<Vec3>, f32)> + 'a {
+    let units = face.available().map(move |u| {
+        (
+            format!("expr.{}", u.id),
+            face.dense(n, [(u.id, 1.0)]),
+            current.get(u.id),
+        )
+    });
+    let mixes = PRESETS
+        .iter()
+        .map(|m| ("face", m))
+        .chain(VISEMES.iter().map(|m| ("viseme", m)))
+        .filter(|(_, m)| !m.units.is_empty())
+        .map(move |(kind, m)| {
+            (
+                format!("{kind}.{}", m.id),
+                face.dense(n, m.units.iter().copied()),
+                0.0,
+            )
+        });
+    units.chain(mixes)
 }
 
 fn normals_of(positions: &[Vec3], indices: &[u32]) -> Vec<Vec3> {
@@ -204,7 +244,7 @@ pub fn character_glb(
     }
     let textured_body = body_tex.base_color.is_some();
 
-    let body_morphs: Vec<(String, Vec<Vec3>, f32)> = shapes
+    let mut body_morphs: Vec<(String, Vec<Vec3>, f32)> = shapes
         .iter()
         .filter_map(|(id, label, weight)| {
             let t = &asset.mesh.targets[asset.mesh.target_index(id)?];
@@ -215,10 +255,24 @@ pub fn character_glb(
             Some((label.clone(), gather(dense), *weight))
         })
         .collect();
+    // Facial expressions, carried onto this shape. The base stays neutral
+    // when they are blendshapes; otherwise the current expression is baked.
+    let face = FaceShapes::new(asset, &ev.body);
+    let mut body_pos = ev.body.clone();
+    if !face.is_empty() {
+        if opts.expressions {
+            body_morphs.extend(
+                expression_morphs(&face, &opts.expression, n)
+                    .map(|(name, d, w)| (name, gather(d), w)),
+            );
+        } else {
+            face.apply_expression(&opts.expression, &mut body_pos);
+        }
+    }
     let body = Part {
         name: "body".into(),
-        normals: gather(asset.mesh.base.compute_normals(&ev.body)),
-        positions: gather(ev.body.clone()),
+        normals: gather(asset.mesh.base.compute_normals(&body_pos)),
+        positions: gather(body_pos),
         indices: without_triangles(
             &render.map_or_else(|| asset.mesh.base.indices.clone(), |r| r.indices.clone()),
             hidden_body,

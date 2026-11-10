@@ -44,6 +44,7 @@ pub struct UiState {
 pub enum RightMode {
     #[default]
     Morph,
+    Face,
     Pose,
     Material,
     Export,
@@ -51,11 +52,18 @@ pub enum RightMode {
 
 impl RightMode {
     /// Order of the centered mode switch.
-    pub const ALL: [Self; 4] = [Self::Morph, Self::Material, Self::Pose, Self::Export];
+    pub const ALL: [Self; 5] = [
+        Self::Morph,
+        Self::Face,
+        Self::Material,
+        Self::Pose,
+        Self::Export,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Morph => "Morph",
+            Self::Face => "Face",
             Self::Material => "Material",
             Self::Pose => "Pose",
             Self::Export => "Export",
@@ -713,6 +721,127 @@ pub(crate) fn pose_list(ui: &mut egui::Ui, ed: &mut Editor) {
     }
 }
 
+/// Expression presets and visemes (upper card of the Face mode).
+pub(crate) fn face_list(ui: &mut egui::Ui, ed: &mut Editor) {
+    use oxy_io::expression::{Expression, PRESETS, VISEMES};
+    if oxy_io::expression::available(&ed.asset).next().is_none() {
+        ui.label(
+            RichText::new(
+                "This character bundle has no expression units. Rebuild it with tools/fetch-assets.sh.",
+            )
+            .color(TEXT_DIM),
+        );
+        return;
+    }
+    let gaze = ed.expression.gaze;
+    let neutral = ed.expression.units.is_empty();
+    if theme::selectable_row(ui, "face-neutral", "Neutral", "", neutral).clicked() {
+        ed.set_expression(Expression {
+            gaze,
+            ..Default::default()
+        });
+    }
+    for (title, list) in [("Expressions", PRESETS), ("Mouth shapes", VISEMES)] {
+        ui.add_space(4.0);
+        ui.label(RichText::new(title).size(11.0).color(TEXT_DIM));
+        for m in list.iter().filter(|m| !m.units.is_empty()) {
+            let mut e = Expression::from_mix(m);
+            e.gaze = gaze;
+            let on = !neutral && e.units == ed.expression.units;
+            if theme::selectable_row(ui, m.id, m.label, "", on).clicked() {
+                ed.set_expression(e);
+            }
+        }
+    }
+}
+
+/// Unit sliders and gaze (lower card of the Face mode).
+pub(crate) fn face_properties(ui: &mut egui::Ui, ed: &mut Editor) {
+    use oxy_io::expression::{available, GAZE_LIMIT, GROUPS, PREFIX};
+    let units: Vec<_> = available(&ed.asset).collect();
+    if units.is_empty() {
+        return;
+    }
+    ui.label(RichText::new("Gaze").strong().size(11.5));
+    let mut g = ed.expression.gaze;
+    let mut changed = false;
+    for (i, (label, lo, hi)) in [
+        ("Left / right", "right", "left"),
+        ("Down / up", "down", "up"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(label).size(11.0).color(TEXT_DIM));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    RichText::new(format!("{:+.0}°", g[i]))
+                        .monospace()
+                        .color(if g[i] != 0.0 { ACCENT } else { TEXT_DIM }),
+                );
+            });
+        });
+        ui.spacing_mut().slider_width = ui.available_width();
+        let l = GAZE_LIMIT[i];
+        let resp = ui
+            .add(egui::Slider::new(&mut g[i], -l..=l).show_value(false))
+            .on_hover_text(format!("{lo} … {hi}"));
+        changed |= resp.changed();
+        if resp.double_clicked() {
+            g[i] = 0.0;
+            changed = true;
+        }
+    }
+    if changed {
+        let mut e = ed.expression.clone();
+        e.set_gaze(g[0], g[1]);
+        ed.set_expression(e);
+    }
+    for group in GROUPS {
+        ui.add_space(6.0);
+        ui.label(RichText::new(group).strong().size(11.5));
+        for u in units.iter().filter(|u| u.group == group) {
+            let mut v = ed.expression.get(u.id);
+            let row = ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(u.label).color(if v > 0.0 {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_gray(205)
+                    }));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{v:.2}"))
+                                .monospace()
+                                .color(if v > 0.0 { ACCENT } else { TEXT_DIM }),
+                        );
+                    });
+                });
+                ui.spacing_mut().slider_width = ui.available_width();
+                let resp = ui.add(
+                    egui::Slider::new(&mut v, 0.0..=1.0)
+                        .show_value(false)
+                        .trailing_fill(true),
+                );
+                if resp.double_clicked() {
+                    v = 0.0;
+                }
+                if resp.changed() || resp.double_clicked() {
+                    let mut e = ed.expression.clone();
+                    e.set(u.id, v);
+                    ed.set_expression(e);
+                }
+                resp.hovered() || resp.dragged()
+            });
+            ui.add_space(2.0);
+            if row.inner || row.response.contains_pointer() {
+                ed.hovered = Some(format!("{PREFIX}{}", u.id));
+            }
+        }
+    }
+}
+
 pub(crate) fn pose_properties(ui: &mut egui::Ui, ed: &mut Editor) {
     let Some(rig) = &ed.asset.rig else {
         ui.label(
@@ -1131,7 +1260,7 @@ mod tests {
             .copied()
             .map(RightMode::label)
             .collect();
-        assert_eq!(labels, ["Morph", "Material", "Pose", "Export"]);
+        assert_eq!(labels, ["Morph", "Face", "Material", "Pose", "Export"]);
         assert_eq!(RightMode::default(), RightMode::Morph);
         assert!(!UiState::default().shelf_collapsed);
     }

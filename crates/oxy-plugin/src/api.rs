@@ -28,6 +28,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use oxy_io::export::{BindPose, ExportOptions};
+use oxy_io::expression::{self as expr, Expression};
 use oxy_io::glam::Vec3;
 use oxy_io::material::MaterialParams;
 use oxy_io::oxybrush::{slug, CustomMorph, CUSTOM_PREFIX};
@@ -80,6 +81,9 @@ pub trait Host {
     /// Index into `oxy_rig::pose::PRESETS`.
     fn pose(&self) -> usize;
     fn set_pose(&mut self, index: usize);
+    /// Facial expression and gaze.
+    fn expression(&self) -> Expression;
+    fn set_expression(&mut self, expression: Expression);
     /// Register a sculpted morph; returns its parameter id.
     fn add_custom_morph(&mut self, morph: CustomMorph) -> String;
     /// `(id, name, worn)` for every wardrobe item the host knows.
@@ -108,6 +112,10 @@ fn vec3(v: &Value) -> Option<Vec3> {
         a[1].as_f64()? as f32,
         a[2].as_f64()? as f32,
     ))
+}
+
+fn expression_json(e: &Expression) -> Value {
+    json!({ "units": e.units, "gaze": e.gaze })
 }
 
 /// Merge `patch` into `base` (objects recursively; other values replace).
@@ -294,8 +302,80 @@ pub fn dispatch(host: &mut dyn Host, method: &str, p: &Value) -> Result<Value, R
             host.set_pose(i);
             Ok(json!({ "pose": oxy_rig::pose::PRESETS[i].name }))
         }
+        "expression.list" => {
+            let mix = |m: &expr::Mix| json!({ "id": m.id, "label": m.label, "units": m.units.iter().map(|(u, w)| (u.to_string(), *w)).collect::<BTreeMap<_, _>>() });
+            Ok(json!({
+                "units": expr::available(host.asset())
+                    .map(|u| json!({ "id": u.id, "label": u.label, "group": u.group }))
+                    .collect::<Vec<_>>(),
+                "presets": expr::PRESETS.iter().map(mix).collect::<Vec<_>>(),
+                "visemes": expr::VISEMES.iter().map(mix).collect::<Vec<_>>(),
+                "gaze_limit": expr::GAZE_LIMIT,
+            }))
+        }
+        "expression.get" => Ok(expression_json(&host.expression())),
+        "expression.set" => {
+            let mut e = if p.get("replace").and_then(|v| v.as_bool()).unwrap_or(false) {
+                Expression {
+                    gaze: host.expression().gaze,
+                    ..Default::default()
+                }
+            } else {
+                host.expression()
+            };
+            for (key, find) in [
+                (
+                    "preset",
+                    expr::preset as fn(&str) -> Option<&'static expr::Mix>,
+                ),
+                ("viseme", expr::viseme),
+            ] {
+                if let Some(id) = p.get(key) {
+                    let id = id
+                        .as_str()
+                        .ok_or_else(|| RpcError::params(format!("`{key}` must be a string")))?;
+                    let m = find(id)
+                        .ok_or_else(|| RpcError::params(format!("unknown {key} `{id}`")))?;
+                    // A mix replaces the units it names and leaves the others.
+                    for &(u, w) in m.units {
+                        e.set(u, w);
+                    }
+                }
+            }
+            if let Some(units) = p.get("units") {
+                let units = units
+                    .as_object()
+                    .ok_or_else(|| RpcError::params("`units` must be an object of weights"))?;
+                for (id, w) in units {
+                    if expr::unit(id).is_none() {
+                        return Err(RpcError::params(format!("unknown expression unit `{id}`")));
+                    }
+                    let w = w
+                        .as_f64()
+                        .ok_or_else(|| RpcError::params(format!("`{id}` needs a number")))?;
+                    e.set(id, w as f32);
+                }
+            }
+            if let Some(g) = p.get("gaze") {
+                let g = g
+                    .as_array()
+                    .filter(|a| a.len() == 2)
+                    .and_then(|a| Some([a[0].as_f64()? as f32, a[1].as_f64()? as f32]))
+                    .ok_or_else(|| RpcError::params("`gaze` must be [yaw, pitch] in degrees"))?;
+                e.set_gaze(g[0], g[1]);
+            }
+            host.set_expression(e.clone());
+            Ok(expression_json(&e))
+        }
         "body.mesh" => {
-            let ev = host.asset().evaluate_full(host.params());
+            let mut ev = host.asset().evaluate_full(host.params());
+            if p.get("expression")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                let e = host.expression();
+                expr::FaceShapes::new(host.asset(), &ev.body).apply_expression(&e, &mut ev.body);
+            }
             let mut out =
                 json!({ "positions": ev.body.iter().map(|v| arr3(*v)).collect::<Vec<_>>() });
             if p.get("triangles")
@@ -451,6 +531,9 @@ pub fn dispatch(host: &mut dyn Host, method: &str, p: &Value) -> Result<Value, R
             if let Some(v) = flag("skeleton") {
                 o.skeleton = v;
             }
+            if let Some(v) = flag("expressions") {
+                o.expressions = v;
+            }
             if let Some(v) = p.get("texture_size").and_then(|v| v.as_u64()) {
                 o.texture_size = (v as u32).clamp(64, 8192);
             }
@@ -479,6 +562,7 @@ pub struct SimpleHost<'a> {
     pub material: MaterialParams,
     pub skin_tone: [f32; 3],
     pub pose: usize,
+    pub expression: Expression,
     pub export: ExportOptions,
     pub wear: Option<String>,
     pub wardrobe_items: Vec<(String, String)>,
@@ -497,6 +581,7 @@ pub struct SimpleHostView<'b> {
     pub material: &'b MaterialParams,
     pub skin_tone: [f32; 3],
     pub pose: usize,
+    pub expression: &'b Expression,
     pub wear: Option<&'b str>,
 }
 
@@ -509,6 +594,7 @@ impl<'a> SimpleHost<'a> {
             material: MaterialParams::default(),
             skin_tone: [0.62, 0.40, 0.29],
             pose: 0,
+            expression: Expression::default(),
             export: ExportOptions::default(),
             wear: None,
             wardrobe_items: Vec::new(),
@@ -525,6 +611,7 @@ impl<'a> SimpleHost<'a> {
             material: &self.material,
             skin_tone: self.skin_tone,
             pose: self.pose,
+            expression: &self.expression,
             wear: self.wear.as_deref(),
         }
     }
@@ -566,6 +653,12 @@ impl Host for SimpleHost<'_> {
     fn set_pose(&mut self, index: usize) {
         self.pose = index;
     }
+    fn expression(&self) -> Expression {
+        self.expression.clone()
+    }
+    fn set_expression(&mut self, expression: Expression) {
+        self.expression = expression;
+    }
     fn add_custom_morph(&mut self, morph: CustomMorph) -> String {
         let id = self.asset.add_custom_morph(&morph);
         self.params.insert(id.clone(), 0.0);
@@ -603,6 +696,7 @@ impl Host for SimpleHost<'_> {
     fn export_options(&self) -> ExportOptions {
         ExportOptions {
             skin_color: self.skin_tone,
+            expression: self.expression.clone(),
             ..self.export.clone()
         }
     }
@@ -739,6 +833,35 @@ mod tests {
         assert!(dispatch(&mut h, "material.set", &json!({ "skin": 3 })).is_err());
         dispatch(&mut h, "pose.set", &json!({ "name": "t-pose" })).unwrap();
         assert_eq!(dispatch(&mut h, "pose.get", &json!({})).unwrap(), "T-pose");
+
+        // Expressions: a preset, a unit on top, gaze; replace starts over.
+        let r = dispatch(
+            &mut h,
+            "expression.set",
+            &json!({ "preset": "smile", "units": { "mouth-open": 0.4 }, "gaze": [90, -3] }),
+        )
+        .unwrap();
+        assert_eq!(r["units"]["mouth-open"], json!(0.4f32));
+        assert_eq!(r["gaze"], json!([35.0, -3.0]));
+        assert!(r["units"]["mouth-corner-puller"].as_f64().unwrap() > 0.5);
+        let r = dispatch(
+            &mut h,
+            "expression.set",
+            &json!({ "replace": true, "viseme": "oh" }),
+        )
+        .unwrap();
+        assert!(r["units"].get("mouth-corner-puller").is_none());
+        assert_eq!(r["gaze"], json!([35.0, -3.0]), "replace keeps the gaze");
+        assert_eq!(dispatch(&mut h, "expression.get", &json!({})).unwrap(), r);
+        assert!(dispatch(&mut h, "expression.set", &json!({ "units": { "grin": 1 } })).is_err());
+        assert!(dispatch(&mut h, "expression.set", &json!({ "preset": "nope" })).is_err());
+        let list = dispatch(&mut h, "expression.list", &json!({})).unwrap();
+        assert!(list["presets"].as_array().unwrap().len() >= 10);
+        assert_eq!(
+            list["units"].as_array().unwrap().len(),
+            0,
+            "tiny asset has no units"
+        );
 
         // A morph given as whole-body positions: lift the apex by 0.5.
         let mesh = dispatch(&mut h, "body.mesh", &json!({ "triangles": true })).unwrap();

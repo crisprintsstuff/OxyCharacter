@@ -211,7 +211,11 @@ pub fn update_character(
             .filter(|w| w.abs() >= oxy_mesh::WEIGHT_EPSILON)
             .count();
         // Morphed, floor-standing body + joints, then the selected pose.
-        let ev = ed.asset.evaluate_full(&ed.params);
+        let mut ev = ed.asset.evaluate_full(&ed.params);
+        if !ed.expression.units.is_empty() {
+            let face = ed.face_shapes(&ev.body);
+            face.apply_expression(&ed.expression, &mut ev.body);
+        }
         let (lo, hi) = oxy_io::makehuman::bounds(&ev.body);
         height.0 = hi.y - lo.y;
         let rest_normals = ed.asset.mesh.base.compute_normals(&ev.body);
@@ -264,7 +268,17 @@ pub fn update_character(
         let n = ed.asset.mesh.base.vertex_count();
         let mut amount = vec![0.0f32; n];
         if let Some(id) = &ed.hovered {
-            for name in ed.asset.catalog.targets_for(id) {
+            let names: Vec<String> = if id.starts_with(oxy_io::expression::PREFIX) {
+                vec![id.clone()]
+            } else {
+                ed.asset
+                    .catalog
+                    .targets_for(id)
+                    .into_iter()
+                    .map(String::from)
+                    .collect()
+            };
+            for name in &names {
                 if let Some(t) = ed
                     .asset
                     .mesh

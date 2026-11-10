@@ -29,6 +29,7 @@ pub struct DocState {
     pub pose: usize,
     pub export: oxy_io::export::ExportOptions,
     pub material: oxy_io::material::MaterialParams,
+    pub expression: oxy_io::expression::Expression,
     key: Vec<String>,
     pub content: Arc<Content>,
 }
@@ -40,6 +41,7 @@ impl PartialEq for DocState {
             && self.pose == o.pose
             && self.export == o.export
             && self.material == o.material
+            && self.expression == o.expression
             && self.key == o.key
     }
 }
@@ -227,6 +229,7 @@ impl Editor {
             pose: self.pose,
             export: self.export.clone(),
             material: self.material.clone(),
+            expression: self.expression.clone(),
             key: content_key(self),
             content: Arc::new(Content {
                 custom: self.custom_morphs_now(),
@@ -270,6 +273,7 @@ impl Editor {
             pose: self.pose,
             export: self.export.clone(),
             material: self.material.clone(),
+            expression: self.expression.clone(),
             key,
             content,
         }
@@ -287,6 +291,7 @@ impl Editor {
         self.pose = state.pose.min(oxy_rig::pose::PRESETS.len() - 1);
         self.export = state.export.clone();
         self.material = state.material.clone();
+        self.expression = state.expression.clone();
         if content_key(self) != state.key {
             // Sculpted morphs: replace the registered set.
             let ids: Vec<String> = self
@@ -393,6 +398,8 @@ impl Editor {
             [] if a.skin != b.skin => "Skin tone".into(),
             [] if a.pose != b.pose => format!("Pose: {}", oxy_rig::pose::PRESETS[b.pose].name),
             [] if a.material != b.material => "Material".into(),
+            [] if a.expression.units != b.expression.units => "Expression".into(),
+            [] if a.expression != b.expression => "Gaze".into(),
             [] => "Export options".into(),
             [one] => self
                 .asset
@@ -435,6 +442,7 @@ impl Editor {
         p.pose = oxy_rig::pose::PRESETS[snap.pose].name.into();
         p.export = snap.export.clone();
         p.material = snap.material.clone();
+        p.expression = snap.expression.clone();
         // Embed sculpted morphs that are in use.
         p.custom_morphs = snap
             .content
@@ -526,6 +534,7 @@ impl Editor {
                 .unwrap_or(0),
             export: project.export.clone(),
             material: project.material.clone(),
+            expression: project.expression.clone(),
             key: vec!["<forced>".into()],
             content: Arc::new(Content {
                 custom,
@@ -556,6 +565,7 @@ impl Editor {
             pose: 0,
             export: oxy_io::export::ExportOptions::default(),
             material: Default::default(),
+            expression: Default::default(),
             key: vec!["<forced>".into()],
             content: Arc::new(Content {
                 custom: self.custom_morphs_now(),
@@ -784,6 +794,19 @@ mod tests {
         ed.material.skin.freckles = 0.5;
         ed.commit_history();
         assert_eq!(ed.session().history.undo_label(), Some("Material"));
+        let smile = oxy_io::expression::Expression::parse("smile").unwrap();
+        ed.set_expression(smile.clone());
+        ed.commit_history();
+        assert_eq!(ed.session().history.undo_label(), Some("Expression"));
+        let mut look = smile.clone();
+        look.set_gaze(10.0, 0.0);
+        ed.set_expression(look);
+        ed.commit_history();
+        assert_eq!(ed.session().history.undo_label(), Some("Gaze"));
+        ed.undo();
+        assert_eq!(ed.expression, smile);
+        ed.undo();
+        assert!(ed.expression.is_neutral());
         ed.undo();
         assert_eq!(ed.material.skin.freckles, 0.0);
         ed.undo();
@@ -843,6 +866,9 @@ mod tests {
         ed.export.blendshapes = true;
         ed.material.skin.blush = 0.6;
         ed.material.eyes.iris = [0.1, 0.4, 0.2];
+        let mut face = oxy_io::expression::Expression::parse("surprise").unwrap();
+        face.set_gaze(-12.0, 4.0);
+        ed.set_expression(face.clone());
         assert!(ed.has_unsaved_changes());
 
         let path = dir.join("hero.oxyc");
@@ -851,6 +877,7 @@ mod tests {
         assert_eq!(ed.session().title(false), "OxyCharacter — hero.oxyc");
 
         ed.new_document();
+        assert!(ed.expression.is_neutral());
         assert_eq!(ed.value("nose"), 0.0);
         assert!(ed.accessories.is_empty());
         // Delete the sculpt from the session to prove the project carries it.
@@ -868,6 +895,7 @@ mod tests {
         assert!(ed.export.blendshapes);
         assert_eq!(ed.material.skin.blush, 0.6);
         assert_eq!(ed.material.eyes.iris, [0.1, 0.4, 0.2]);
+        assert_eq!(ed.expression, face);
         assert!(!ed.has_unsaved_changes(), "freshly opened");
         assert!(!ed.session().history.can_undo());
         assert_eq!(ed.session().recent.len(), 1);

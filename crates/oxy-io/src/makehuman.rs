@@ -155,6 +155,32 @@ impl Loader {
         self.targets.push(t);
         Ok(true)
     }
+
+    /// Load the mean of several target files (missing files count as zero)
+    /// as target `name`, body vertices only. Returns false if none exist.
+    fn load_mean(&mut self, rels: &[String], name: &str) -> Result<bool> {
+        let mut sum: BTreeMap<u32, Vec3> = BTreeMap::new();
+        let mut found = 0;
+        for rel in rels {
+            let path = self.targets_dir.join(format!("{rel}.target"));
+            let Ok(src) = fs::read_to_string(&path) else {
+                continue;
+            };
+            found += 1;
+            for (i, d) in target::parse(&src, &path.to_string_lossy())? {
+                if let Some(&n) = self.remap.get(i as usize).filter(|&&n| n != u32::MAX) {
+                    *sum.entry(n).or_default() += d * UNIT_SCALE;
+                }
+            }
+        }
+        if found == 0 || sum.is_empty() {
+            return Ok(false);
+        }
+        let k = rels.len() as f32;
+        let (indices, deltas) = sum.into_iter().map(|(i, d)| (i, d / k)).unzip();
+        self.targets.push(MorphTarget::new(name, indices, deltas));
+        Ok(true)
+    }
 }
 
 /// `root` is a MakeHuman `data` directory.
@@ -235,6 +261,7 @@ pub fn import(root: &Path) -> Result<CharacterAsset> {
     let mut catalog = Catalog::default();
     add_macros(&mut loader, &mut catalog)?;
     add_sliders(&mut loader, &mut catalog)?;
+    add_expression_units(&mut loader)?;
 
     Ok(CharacterAsset {
         meta: AssetMeta {
@@ -620,6 +647,24 @@ fn add_sliders(loader: &mut Loader, catalog: &mut Catalog) -> Result<()> {
                 });
             }
         }
+    }
+    Ok(())
+}
+
+/// MakeHuman ships each expression unit once per ancestry
+/// (`expression/units/<ancestry>/<unit>.target`). We keep one target per
+/// unit, the mean of the three, named `expr/<unit>`. Units are not sliders in
+/// the catalog: [`crate::expression`] drives them on top of the shaped body,
+/// and they carry no aux deltas, so the skeleton does not follow an
+/// expression (as in an exported blendshape).
+fn add_expression_units(loader: &mut Loader) -> Result<()> {
+    const ANCESTRY: [&str; 3] = ["african", "asian", "caucasian"];
+    for unit in crate::expression::UNITS {
+        let rels: Vec<String> = ANCESTRY
+            .iter()
+            .map(|a| format!("expression/units/{a}/{}", unit.id))
+            .collect();
+        loader.load_mean(&rels, &format!("{}{}", crate::expression::PREFIX, unit.id))?;
     }
     Ok(())
 }

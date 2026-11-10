@@ -133,6 +133,12 @@ impl Host for EditorHost<'_> {
     fn set_pose(&mut self, index: usize) {
         self.ed.set_pose(index);
     }
+    fn expression(&self) -> oxy_io::expression::Expression {
+        self.ed.expression.clone()
+    }
+    fn set_expression(&mut self, expression: oxy_io::expression::Expression) {
+        self.ed.set_expression(expression);
+    }
     fn add_custom_morph(&mut self, morph: CustomMorph) -> String {
         let id = format!("{CUSTOM_PREFIX}{}", morph.id);
         self.ed.register_custom_morph(&morph);
@@ -174,6 +180,7 @@ impl Host for EditorHost<'_> {
     fn export_options(&self) -> ExportOptions {
         ExportOptions {
             skin_color: self.ed.skin,
+            expression: self.ed.expression.clone(),
             ..self.ed.export.clone()
         }
     }

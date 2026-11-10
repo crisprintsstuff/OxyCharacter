@@ -17,6 +17,7 @@ use std::path::Path;
 
 use oxy_fit::{builtin_name, FitSettings, GarmentBind, ItemKind};
 use oxy_io::export::ExportOptions;
+use oxy_io::expression::Expression;
 use oxy_io::oxybrush::{Accessory, CustomMorph};
 use oxy_io::CharacterAsset;
 use serde::{Deserialize, Serialize};
@@ -134,6 +135,9 @@ pub struct Project {
     /// Worn garments and hair (added without a version bump: optional).
     #[serde(default)]
     pub wardrobe: Vec<WardrobeEntry>,
+    /// Facial expression and gaze (added without a version bump: optional).
+    #[serde(default, skip_serializing_if = "Expression::is_neutral")]
+    pub expression: Expression,
 }
 
 impl Project {
@@ -151,6 +155,7 @@ impl Project {
             custom_morphs: Vec::new(),
             accessories: Vec::new(),
             wardrobe: Vec::new(),
+            expression: Expression::default(),
         }
     }
 
@@ -237,6 +242,21 @@ impl Project {
             for id in unknown {
                 self.params.remove(&id);
             }
+        }
+        let missing: Vec<&str> = self
+            .expression
+            .units
+            .keys()
+            .map(String::as_str)
+            .filter(|id| oxy_io::expression::available(asset).all(|u| u.id != *id))
+            .collect();
+        if !missing.is_empty() {
+            // Kept in the project (saved back unchanged); they just move nothing here.
+            warnings.push(format!(
+                "{} expression unit(s) are not in this base and have no effect: {}",
+                missing.len(),
+                missing.join(", ")
+            ));
         }
         let before = self.accessories.len();
         self.accessories.retain(|a| {

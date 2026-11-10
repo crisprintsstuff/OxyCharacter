@@ -483,3 +483,142 @@ fn clothing_fits_and_exports_if_available() {
     let body_tris = body.primitives().next().unwrap().indices().unwrap().count() / 3;
     assert!(body_tris + 3 <= asset.mesh.base.indices.len() / 3);
 }
+
+/// Expression units import from the CC0 data, carry over to a reshaped face,
+/// and export as named sparse blendshapes. Skipped without `OXY_MAKEHUMAN_DATA`.
+#[test]
+fn expressions_transport_and_export_if_available() {
+    use oxy_io::export::{character_glb, BindPose, ExportOptions};
+    use oxy_io::expression::{self, Expression, FaceShapes};
+    let Some(dir) = std::env::var_os("OXY_MAKEHUMAN_DATA") else {
+        eprintln!("OXY_MAKEHUMAN_DATA not set; skipping");
+        return;
+    };
+    let asset = oxy_io::makehuman::import(dir.as_ref()).unwrap();
+    let base = asset.evaluate_full(&asset.catalog.defaults());
+    let face = FaceShapes::new(&asset, &base.body);
+    assert_eq!(face.available().count(), expression::UNITS.len());
+    // Expressions are not catalog sliders.
+    assert!(asset
+        .catalog
+        .params
+        .iter()
+        .all(|p| !p.id.starts_with(expression::PREFIX)));
+
+    // Jaw open lowers the chin by centimetres. On the unmorphed base the
+    // transport is the identity; on the default shape it stays close.
+    let open = Expression::from_mix(&expression::Mix {
+        id: "t",
+        label: "t",
+        units: &[("mouth-open", 1.0)],
+    });
+    let mut body = base.body.clone();
+    face.apply_expression(&open, &mut body);
+    let drop = body
+        .iter()
+        .zip(&base.body)
+        .map(|(a, b)| a.y - b.y)
+        .fold(0.0f32, f32::min);
+    assert!(drop < -0.015, "chin should drop, {drop}");
+    let t = &asset.mesh.targets[asset.mesh.target_index("expr/mouth-open").unwrap()];
+    let n = base.body.len();
+    let raw = FaceShapes::new(&asset, &asset.mesh.base.positions).dense(n, [("mouth-open", 1.0)]);
+    let shaped = face.dense(n, [("mouth-open", 1.0)]);
+    let mut rel = Vec::new();
+    for (&i, &d) in t.indices.iter().zip(&t.deltas) {
+        assert!(raw[i as usize].distance(d) < 1e-5, "identity transport");
+        if d.length() > 1e-3 {
+            rel.push(shaped[i as usize].distance(d) / d.length());
+        }
+    }
+    rel.sort_by(f32::total_cmp);
+    assert!(
+        rel[rel.len() / 2] < 0.3,
+        "median change {}",
+        rel[rel.len() / 2]
+    );
+
+    // On a much larger head the unit is scaled with the local surface.
+    let mut big = asset.catalog.defaults();
+    let head = asset
+        .catalog
+        .params
+        .iter()
+        .find(|p| p.id.contains("head-scale-vert") || p.id.contains("head-scale-depth"))
+        .map(|p| p.id.clone());
+    if let Some(head) = head {
+        big.insert(head, 1.0);
+    }
+    big.insert("height".into(), 1.0);
+    let tall = asset.evaluate_full(&big);
+    let tall_face = FaceShapes::new(&asset, &tall.body);
+    let len = |f: &FaceShapes| -> f32 {
+        f.dense(n, [("mouth-open", 1.0)])
+            .iter()
+            .map(|d| d.length())
+            .sum()
+    };
+    let ratio = len(&tall_face) / len(&face);
+    assert!((0.8..1.6).contains(&ratio), "transport scale {ratio}");
+
+    // Export: neutral base + one named target per unit, preset and viseme.
+    let mut opts = ExportOptions {
+        textures: false,
+        bind_pose: BindPose::TPose,
+        ..Default::default()
+    };
+    opts.expression = Expression::from_mix(expression::preset("smile").unwrap());
+    let mut bytes = Vec::new();
+    let stats = character_glb(
+        &asset,
+        &asset.catalog.defaults(),
+        &[],
+        &Default::default(),
+        &opts,
+        &[],
+        &[],
+        &mut bytes,
+    )
+    .unwrap();
+    let mixes = expression::PRESETS.len()
+        + expression::VISEMES
+            .iter()
+            .filter(|m| !m.units.is_empty())
+            .count();
+    assert_eq!(stats.blendshapes, expression::UNITS.len() + mixes);
+    let (doc, buffers, _) = gltf::import_slice(&bytes).expect("valid glb");
+    let mesh = doc.meshes().find(|m| m.name() == Some("body")).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_slice(&gltf::Glb::from_slice(&bytes).unwrap().json).unwrap();
+    let names: Vec<String> = json["meshes"][mesh.index()]["extras"]["targetNames"]
+        .as_array()
+        .cloned()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    let corner = names
+        .iter()
+        .position(|n| n == "expr.mouth-corner-puller")
+        .unwrap();
+    assert!(names.iter().any(|n| n == "face.smile"));
+    assert!(names.iter().any(|n| n == "viseme.oh"));
+    let weights = mesh.weights().unwrap();
+    assert!((weights[corner] - 0.8).abs() < 1e-6);
+    let prim = mesh.primitives().next().unwrap();
+    let targets: Vec<_> = prim.morph_targets().collect();
+    assert_eq!(targets.len(), names.len());
+    let acc = targets[corner].positions().unwrap();
+    assert!(acc.sparse().is_some(), "unit targets are sparse");
+    // The gltf crate reads sparse accessors: the moved vertices are there.
+    let reader = prim.reader(|b| Some(&buffers[b.index()]));
+    let moved = reader
+        .read_morph_targets()
+        .nth(corner)
+        .unwrap()
+        .0
+        .unwrap()
+        .filter(|d| d.iter().any(|c| c.abs() > 1e-6))
+        .count();
+    assert!(moved > 300, "only {moved} vertices move");
+}

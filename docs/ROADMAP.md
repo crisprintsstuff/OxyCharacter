@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-10 (plugins) · **Version:** 0.0.1-alpha
+**Last updated:** 2026-11-10 (face & expressions) · **Version:** 0.0.1-alpha
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -19,8 +19,8 @@ Legend: ✅ done · 🚧 in progress · ⏳ planned · ❔ needs a decision
 | M4 | Materials: UVs, procedural skin, eyes, texture export | ✅ |
 | M5 | Clothing & hair: fitting, weight transfer, hide-under | ✅ |
 | P1 | Plugins: own Python API (stdio JSON-RPC), editor menu, headless runs | ✅ |
-| M6 | Face & expressions | ⏳ next |
-| M7 | Production export: LODs, atlases, engine presets, FBX | ⏳ |
+| M6 | Face & expressions: units, presets, visemes, gaze, blendshape export | ✅ |
+| M7 | Production export: LODs, atlases, engine presets, FBX | ⏳ next |
 | M8+ | Stretch: photo-to-head, cloth preview, scripting, USD | ⏳ |
 
 ## Done
@@ -123,14 +123,33 @@ material does not).
 - Not yet: plugin UI (panels, dialogs), host→plugin change notifications,
   plugin settings persistence.
 
-## Next: M6 — Face & expressions ⏳
+### M6 — Face & expressions ✅
+- The 34 CC0 MakeHuman expression units (mean of the three ancestry
+  versions) as sparse targets `expr/<unit>`; stable ids, our own labels and
+  groups (`oxy_io::expression`).
+- Our own presets (10) and visemes (11) as unit mixes.
+- Transport onto the shaped face: per-vertex rotation and scale fitted over a
+  3-ring neighbourhood (`oxy_mesh::transport`), cached per shape in the
+  editor. Expressions move the body only; the skeleton stays put.
+- Gaze turns the eye bones (±35° / ±25°) in the viewport.
+- Editor **Face** mode (presets, mouth shapes, gaze, unit sliders with
+  region highlight); expression in `DocState`, undo and `.oxyc`
+  (optional field).
+- glTF: neutral body plus `expr.*` (current weights), `face.*` and
+  `viseme.*` morph targets as sparse accessors; `--no-expressions` bakes it.
+  Validator 0 errors / 0 warnings.
+- `oxy expressions`, `oxy export --expression`, editor `--face-tab
+  --expression --gaze`; plugin API `expression.list/get/set` (additive).
+- Decision: [ADR 0012](adr/0012-face-expressions.md); spec:
+  [specs/face.md](specs/face.md).
+
+Not yet: teeth, tongue and mouth interior; eyelashes and brows; a jaw bone
+driven by the jaw-open unit; gaze in exports; expression animation and lip
+sync; cheek puff and tongue units.
+
+## Next: M7 — Production export ⏳
 
 ## Later
-
-### M6 — Face & expressions ⏳
-Expression set with stable names, deformation transport onto morphed faces,
-visemes, jaw/eye rig, expression sliders and export as blendshapes. Bring in
-the CC0 expression targets not imported today.
 
 ### M7 — Production export ⏳
 LODs, texture atlasing, engine presets (Unity/Unreal/Godot/Bevy), reduced
@@ -150,7 +169,8 @@ Photo-to-head fitting, cloth simulation preview, USD. (Scripting landed early as
 - **Native file dialogs need a desktop session.** Headless runs and Linux
   without `org.freedesktop.portal.FileChooser` keep the typed-path dialog
   (recent projects included). `OXY_FILE_DIALOG=native` forces the system dialog.
-- **No teeth, tongue, eyelashes or brows** yet (M6); eyes are simple spheres.
+- **No teeth, tongue, eyelashes or brows** yet; eyes are simple spheres. An
+  open-mouth expression shows an empty mouth.
 - **Accessories that sit away from the body don't refit** (they only skin).
   Fitted ones use smoothed weight transfer; rigid ones still use
   nearest-vertex. There is no collision between overlapping garments.

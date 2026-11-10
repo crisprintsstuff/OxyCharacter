@@ -65,12 +65,14 @@ reaches any method by name.
 | `app.reset(*ids)` | `params.reset` | all sliders when no ids |
 | `app.material()` / `app.set_material(skin_tone=, skin=, eyes=)` | `material.get` / `material.set` | partial objects; colours linear RGB. Skin: `variation, detail, roughness, freckles, freckle_color, blush, blush_color, eye_shadow, eye_shadow_color, lips, lip_color, seed`. Eyes: `iris, iris_angle, pupil, size` |
 | `app.poses()`, `app.pose()`, `app.set_pose(name)` | `pose.*` | preview pose presets |
-| `app.body_mesh(triangles=False)` | `body.mesh` | rest-pose body positions (metres, Y up, faces +Z, feet at y = 0) in base-vertex order; optional triangles |
+| `app.expressions()` | `expression.list` | `units` (`id, label, group`) this character has, `presets` and `visemes` (`id, label, units`), `gaze_limit` `[yaw, pitch]` |
+| `app.expression()` / `app.set_expression(preset=, viseme=, units={id: w}, gaze=[yaw, pitch], replace=False)` | `expression.get` / `expression.set` | weights 0–1; a preset or viseme sets the units it names, then `units`, then `gaze` (degrees, + = character's left / up). `replace` clears the other units first. Unknown ids raise and nothing is set |
+| `app.body_mesh(triangles=False, expression=False)` | `body.mesh` | rest-pose body positions (metres, Y up, faces +Z, feet at y = 0) in base-vertex order; optional triangles; the neutral face unless `expression` |
 | `app.joints()` | `body.joints` | `{bone: {name, parent, head, tail}}` |
 | `app.measure()` | `body.measure` | `height, width, depth, min, max` |
 | `app.add_morph(label, positions=…)` or `(label, indices=…, deltas=…)`, `value=1.0` | `morph.add` | new slider under *Custom › Sculpted*, set to `value`; returns its id. The skeleton follows it |
 | `app.wardrobe()`, `app.wear("tee,pants:0.8,hair")`, `app.undress()` | `wardrobe.*` | built-in items; `id:tightness` |
-| `app.export_glb(path, **opts)` | `export.glb` | rigged glTF; options `tpose, blendshapes, textures, texture_size, eyes, skeleton` |
+| `app.export_glb(path, **opts)` | `export.glb` | rigged glTF; options `tpose, blendshapes, textures, texture_size, eyes, skeleton, expressions` |
 | `app.save_project(path)` | `project.save` | `.oxyc` (in the editor this is a normal save) |
 | `app.notify(text)` | `notify` | status bar in the editor; printed by the CLI |
 
@@ -118,11 +120,12 @@ the API above:
 | Dresses the character or swaps clothing | `app.wear("tee,pants")`, `app.undress()` |
 | Poses the character for a render or export | `app.set_pose("T-pose")`; export with `app.export_glb(path, tpose=True)` |
 | Batch-exports characters | loop: `reset` → `set_params` → `export_glb` (see `examples/plugins/crowd_export.py`), headless via `oxy plugin` |
+| Sets a facial expression or mouth shape | `app.set_expression(preset="smile")`, `app.set_expression(viseme="oh", replace=True)`; ids from `app.expressions()` |
 | Reads bone positions | `app.joints()` |
 | Shows a message | `app.notify(text)`; `print()` for the log |
 
 Things with no equivalent yet: plugin-defined panels and dialogs, animation
-timelines, render settings, facial expressions (M6).
+timelines (keyframed expressions or lip sync), render settings.
 
 ## Examples
 
