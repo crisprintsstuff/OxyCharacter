@@ -17,6 +17,9 @@ on:
   push:
     tags:
       - "v*"
+    # Temporary: one dry-run of this branch before merge (does not publish).
+    branches:
+      - "claude/nifty-rubin-x3hfga"
   workflow_dispatch:
 
 # A second push to this branch replaces an in-progress dry-run. A tag push
@@ -77,7 +80,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Pinned, not ubuntu-latest: the binaries need the runner's glibc or
+          # newer. ubuntu-latest moved to glibc 2.43, which v0.0.1-alpha
+          # shipped with and which Ubuntu 24.04 (2.39) cannot run.
+          # verify.sh fails if a binary needs more than 2.39.
+          - os: ubuntu-24.04
             platform: linux
             target: x86_64-unknown-linux-gnu
             extra_target: ""
