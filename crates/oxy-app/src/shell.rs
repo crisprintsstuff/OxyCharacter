@@ -67,6 +67,7 @@ pub fn ui_system(
 
     ui::bridge_windows(&ctx, ed);
     ui::document_windows(&ctx, ed);
+    crate::plugins::window(&ctx, &mut state.plugins);
     ui::service_dialogs(&ctx, ed, &mut state);
     help_window(&ctx, &mut state.help_open);
     about_window(&ctx, ed, &mut state.about_open);
@@ -204,6 +205,8 @@ fn menus(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState, orbit: &mut Or
         mode_menu(ui, state);
         window_menu(ui, state);
         viewport_menu(ui, ed, orbit, height);
+        let user_dir = ed.session.as_ref().map(|s| s.user_dir.clone());
+        crate::plugins::menu(ui, &mut state.plugins, user_dir.as_deref());
         help_menu(ui, state);
     });
 }

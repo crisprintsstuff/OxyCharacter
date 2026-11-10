@@ -9,6 +9,10 @@ development branch. Publishing a version is a git tag; see
 ## [0.0.1-alpha] — 2026-11-09
 
 ### Added
+- **Plugins (P1):** OxyCharacter's own Python plugin API over stdio
+  JSON-RPC (`oxy-plugin`, API v1), pure-Python SDK (`python/oxycharacter`),
+  example plugins, editor Plugins menu and log (a run is one undo step),
+  `--run-plugin`, headless `oxy plugin`; SDK and examples in release packages.
 - **Release packages.** Pushing a tag `v*` builds the editor and the CLI for
   Linux x86_64, macOS (universal) and Windows x86_64 and publishes a GitHub
   Release. The CC0 character bundle is built in that workflow and shipped in

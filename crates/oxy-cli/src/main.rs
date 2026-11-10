@@ -5,6 +5,7 @@
 //! oxy info <bundle.oxyb>
 //! oxy export <bundle.oxyb> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...]
 //! oxy wardrobe <bundle.oxyb>
+//! oxy plugin <bundle.oxyb> <script.py> [--open project.oxyc] [--morphs DIR] [-- script args ...]
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
 //! ```
@@ -122,6 +123,9 @@ fn run(args: &[String]) -> Result<(), String> {
                 }
             }
         }
+        ["plugin", path, script, rest @ ..] => {
+            run_plugin(path, script, rest)?;
+        }
         ["wardrobe", path] => {
             let a = load(path)?;
             let ev = a.evaluate_full(&a.catalog.defaults());
@@ -190,7 +194,7 @@ fn run(args: &[String]) -> Result<(), String> {
             );
         }
         _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | plugin <bundle> <script.py> [--open project.oxyc] [--morphs DIR] [-- args ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
         }
     }
     Ok(())
@@ -199,6 +203,168 @@ fn run(args: &[String]) -> Result<(), String> {
 /// Built-ins are authored on the default body and fitted to `params`.
 /// `--wear` is `id` or `id:tightness`, comma-separated. `--wardrobe` is a
 /// package folder.
+/// Run a plugin headless against the bundle (optionally starting from a project).
+fn run_plugin(bundle: &str, script: &str, rest: &[&str]) -> Result<(), String> {
+    use oxy_plugin::api::SimpleHost;
+    let mut asset = load(bundle)?;
+    let (mut open, mut morphs, mut script_args) = (None, None, Vec::new());
+    let mut it = rest.iter();
+    while let Some(a) = it.next() {
+        match *a {
+            "--open" => open = Some(*it.next().ok_or("--open needs a project file")?),
+            "--morphs" => morphs = Some(*it.next().ok_or("--morphs needs a folder")?),
+            "--" => {
+                script_args.extend(it.by_ref().map(|s| s.to_string()));
+            }
+            other => {
+                return Err(format!(
+                    "unknown option {other} (pass script arguments after --)"
+                ))
+            }
+        }
+    }
+    if let Some(dir) = morphs {
+        let (list, errors) =
+            oxybrush::load_custom_morphs(Path::new(dir), asset.mesh.base.vertex_count());
+        for e in errors {
+            eprintln!("warning: {e}");
+        }
+        for m in &list {
+            asset.add_custom_morph(m);
+        }
+    }
+    let ev = asset.evaluate_full(&asset.catalog.defaults());
+    let names = asset
+        .rig
+        .as_ref()
+        .map(|r| r.bones.iter().map(|b| b.name.clone()).collect::<Vec<_>>());
+    let wardrobe_items: Vec<(String, String)> = author_builtins(
+        &ev.body,
+        &asset.mesh.base.indices,
+        asset.rig.as_ref().map(|r| r.skin.as_slice()),
+        names.as_deref(),
+    )
+    .into_iter()
+    .map(|g| (g.id.to_string(), g.name.to_string()))
+    .collect();
+
+    let mut host = SimpleHost::new(asset);
+    host.wardrobe_items = wardrobe_items;
+    if let Some(p) = open {
+        let mut project =
+            oxy_project::Project::load(Path::new(p)).map_err(|e| format!("{p}: {e}"))?;
+        for w in project.reconcile(&host.asset) {
+            eprintln!("note: {w}");
+        }
+        for m in &project.custom_morphs {
+            host.asset.add_custom_morph(m);
+        }
+        host.params = host.asset.catalog.defaults();
+        host.params.extend(project.params.clone());
+        host.material = project.material.clone();
+        host.skin_tone = project.skin;
+        host.pose = oxy_rig::pose::PRESETS
+            .iter()
+            .position(|x| x.name == project.pose)
+            .unwrap_or(0);
+        host.export = project.export.clone();
+        let worn: Vec<String> = project
+            .wardrobe
+            .iter()
+            .filter_map(|w| w.builtin.clone())
+            .collect();
+        if !worn.is_empty() {
+            host.wear = Some(worn.join(","));
+        }
+        if project.wardrobe.iter().any(|w| w.builtin.is_none()) {
+            eprintln!("note: imported garments in the project are not available to headless plugins (built-in ones are)");
+        }
+    }
+    host.exporter = Box::new(|v, path, opts| {
+        let (worn, hidden) = assemble_clothing(v.asset, v.params, v.wear, None)?;
+        let f = File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let st = export::character_glb(
+            v.asset,
+            v.params,
+            &[],
+            v.material,
+            opts,
+            &worn,
+            &hidden,
+            BufWriter::new(f),
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(
+            serde_json::json!({ "path": path, "meshes": st.meshes, "bones": st.bones, "blendshapes": st.blendshapes, "textures": st.textures }),
+        )
+    });
+    host.saver = Box::new(|v, path| {
+        let path = if path.extension().is_none() {
+            path.with_extension(oxy_project::EXTENSION)
+        } else {
+            path.to_owned()
+        };
+        let mut p = oxy_project::Project::new(oxy_project::BaseRef::of(v.asset));
+        p.set_params(v.asset, v.params);
+        p.skin = v.skin_tone;
+        p.pose = oxy_rig::pose::PRESETS[v.pose].name.into();
+        p.material = v.material.clone();
+        p.custom_morphs = v
+            .asset
+            .catalog
+            .params
+            .iter()
+            .filter(|d| {
+                d.id.starts_with(oxybrush::CUSTOM_PREFIX)
+                    && v.params.get(&d.id).is_some_and(|x| x.abs() > 1e-6)
+            })
+            .filter_map(|d| {
+                let t = &v.asset.mesh.targets[v.asset.mesh.target_index(&d.id)?];
+                Some(oxybrush::CustomMorph {
+                    id: d.id.trim_start_matches(oxybrush::CUSTOM_PREFIX).into(),
+                    label: d.label.clone(),
+                    indices: t.indices.clone(),
+                    deltas: t.deltas.clone(),
+                })
+            })
+            .collect();
+        if v.wear.is_some_and(|w| !w.is_empty()) {
+            eprintln!("note: worn items are not saved by headless plugins yet");
+        }
+        p.save(&path).map_err(|e| e.to_string())?;
+        Ok(path)
+    });
+
+    let sdk = oxy_plugin::runner::sdk_dir();
+    if sdk.is_none() {
+        eprintln!("warning: the oxycharacter Python SDK was not found; set OXY_PYTHON_SDK");
+    }
+    let child = oxy_plugin::runner::spawn(Path::new(script), sdk.as_deref(), &script_args)
+        .map_err(|e| {
+            format!(
+                "could not start {} for {script}: {e}",
+                oxy_plugin::runner::python_command().display()
+            )
+        })?;
+    let t = Instant::now();
+    let done = oxy_plugin::runner::run_blocking(child, &mut host, |line| eprintln!("{line}"))
+        .map_err(|e| e.to_string())?;
+    for n in &host.notes {
+        println!("{n}");
+    }
+    println!(
+        "plugin finished: {} ({} calls, {:.1?})",
+        done.status,
+        done.calls,
+        t.elapsed()
+    );
+    if done.status.success() {
+        Ok(())
+    } else {
+        Err(format!("plugin exited with {}", done.status))
+    }
+}
+
 fn assemble_clothing(
     asset: &CharacterAsset,
     params: &oxy_morph::Params,

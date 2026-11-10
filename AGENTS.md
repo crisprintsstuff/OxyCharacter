@@ -24,11 +24,14 @@ crates/
   oxy-io       OBJ/target readers, MakeHuman CC0 importer, .oxyb bundle,
                glTF export (skinned), .oxb read/write, OxyBrush bridge            (no GPU)
   oxy-material UV rasterizer, noise, layer stack, skin/eye bakes, eyeball mesh     (no GPU)
+  oxy-plugin   plugin API v1 (stdio JSON-RPC), Host trait, runner, discovery     (no GPU)
   oxy-project  .oxyc project format, migrations, snapshot undo history           (no GPU)
   oxy-cli      headless tools, binary `oxy`                                       (no GPU)
   oxy-app      Bevy 0.20 + egui editor, binary `oxycharacter`
 assets/        LICENSES.md (ledger); cache/ and generated/ are fetched/built, git-ignored
 docs/          PLAN.md, ROADMAP.md, TESTING.md, CLEAN_ROOM.md, adr/, specs/, images/
+python/        oxycharacter plugin SDK (pure Python)
+examples/      plugins/ (example plugins, shipped in packages)
 tools/         fetch-assets.sh (CC0 data → bundle), validate-gltf/ (Khronos validator, three.js)
 ```
 
@@ -96,7 +99,11 @@ from scratch (Bevy); incremental builds are seconds.
    then `gather`; never index morphs/weights by render vertex.
 8. **Units and axes.** Metres, Y up, character faces +Z, its left is +X, feet
    at y = 0 in the editor and exports (MakeHuman's decimetres are scaled 0.1).
-9. **glTF output stays valid.** Exports must pass the Khronos validator with
+9. **Plugin API compatibility.** `oxy-plugin` methods are answered by one
+   dispatcher for every host. New methods and optional fields are additive;
+   changing or removing anything bumps `API_VERSION`. Keep
+   [docs/PLUGINS.md](docs/PLUGINS.md) and the Python SDK in step with it.
+10. **glTF output stays valid.** Exports must pass the Khronos validator with
    0 errors and 0 warnings (e.g. inverse bind matrices need an exact
    `0 0 0 1` bottom row).
 
@@ -118,8 +125,10 @@ from scratch (Bevy); incremental builds are seconds.
 - **No `unsafe`** (forbidden workspace-wide).
 - **No network access from the editor or CLI.** Only `tools/fetch-assets.sh`
   downloads (on request). The editor may start OxyBrush (`$OXYBRUSH_BIN` or
-  `oxybrush`) only when the user clicks *Send to OxyBrush*; scripted runs
-  never start programs.
+  `oxybrush`) only when the user clicks *Send to OxyBrush*, and a plugin's
+  Python only when the user runs that plugin (menu, `--run-plugin`,
+  `oxy plugin`). Plugins talk over the child's stdio; never add sockets or
+  ports for them.
 - **Trademarks.** Don't use other products' names for features, in code, UI or
   docs. Naming a product only to identify a file format or for interoperability
   is fine.
@@ -169,7 +178,7 @@ behaviour), describe it as a spec and open it there. The end-to-end recipe
   `mesa-vulkan-drivers`). Software rendering gives ~10 FPS; that's expected.
 - The editor's scripted options (`--set`, `--select`, `--hover`, `--head`,
   `--pose`, `--skeleton`, `--pose-tab`, `--material-tab`, `--iris`, `--import-oxb [--apply-import]`,
-  `--send-oxybrush`, `--open`, `--save-as`, `--close`, `--screenshot`,
+  `--send-oxybrush`, `--run-plugin`, `--open`, `--save-as`, `--close`, `--screenshot`,
   `--frames`, `--wardrobe-tab`, `--wear tee,pants,hair`) cover most UI states without clicking. Set `OXY_USER_DIR` to a
   scratch folder so runs don't touch `user/`.
 - `tools/fetch-assets.sh` needs git access to github.com; set `OXY_CACHE` to

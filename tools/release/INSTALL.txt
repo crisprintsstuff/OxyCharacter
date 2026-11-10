@@ -6,6 +6,7 @@ This folder contains:
 - oxycharacter — the editor (oxycharacter.exe on Windows)
 - oxy — the command-line tool (oxy.exe on Windows)
 - makehuman.oxyb — the CC0 base character (mesh, morphs, skeleton)
+- python/, plugins/ — the plugin SDK and example plugins (Plugins menu; needs Python 3)
 - LICENSE-MIT, LICENSE-APACHE — licences for the code
 - LICENSES.md — asset licence ledger
 - MakeHuman-LICENSE.ASSETS.md — the CC0 statement for the base character data

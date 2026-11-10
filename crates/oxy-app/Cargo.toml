@@ -17,6 +17,7 @@ oxy-io.workspace = true
 oxy-rig.workspace = true
 oxy-project.workspace = true
 oxy-material.workspace = true
+oxy-plugin.workspace = true
 oxy-fit.workspace = true
 serde_json = "1"
 bevy = { version = "0.20.1", default-features = false, features = [

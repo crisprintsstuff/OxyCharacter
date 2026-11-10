@@ -37,6 +37,7 @@ pub struct UiState {
     pub wardrobe_focus: Option<String>,
     /// Which accessory card the shelf is editing.
     pub accessory_focus: Option<usize>,
+    pub plugins: crate::plugins::PluginState,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
