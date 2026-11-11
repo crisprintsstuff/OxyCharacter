@@ -46,5 +46,6 @@ Process:
 | 2026-11-09 | GitHub changelog, "macOS 14 runner image retirement" (retired 2026-11-02) and the hosted-runner table | Public documentation | Which `runs-on` label still provides an Apple Silicon Mac | `macos-14` is rejected (`macos-14-arm64-us-default` is not supported). The workflow uses `macos-15` and cross-compiles the Intel slice |
 | 2026-11-09 | Inno Setup 6 script syntax (`[Setup]`, `[Files]`, `[Icons]`, `{localappdata}`, `{group}`) and Apple `codesign` / `notarytool` flags | Public tool interfaces | Windows installer (Start Menu, uninstaller) and optional macOS signing | Scripts call those tools. Inno Setup, codesign and notarytool are not vendored. No sample project was copied |
 | 2026-11-09 | linuxdeploy and appimagetool (GitHub continuous releases; MIT) | MIT tools, downloaded at build time | Linux AppImage of the editor and CLI | Not vendored. The AppRun script and the desktop file are original |
+| 2026-11-11 | Rhai 1.27 language (rhai.rs, MIT) | MIT embedded scripting language | Plugin syntax | Used as a dependency. The host functions are original; no commercial plugin API was read ([ADR 0011](adr/0011-script-plugins.md)) |
 
 Add new rows at the bottom.

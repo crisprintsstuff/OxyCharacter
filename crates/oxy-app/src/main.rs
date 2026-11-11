@@ -8,6 +8,7 @@
 //!              [--wear tee,pants,hair] [--iris NAME] [--open FILE.oxyc]
 //!              [--save-as FILE.oxyc] [--close]
 //!              [--dialog open|save|export|import]
+//!              [--script FILE.rhai [--call FUNCTION]]
 //!              [--screenshot out.png [--frames N]]
 //! ```
 
@@ -18,6 +19,7 @@ mod editor;
 mod file_dialog;
 mod look;
 mod scene;
+mod scripts;
 mod shell;
 mod theme;
 mod ui;
@@ -65,6 +67,10 @@ struct Args {
     close: bool,
     /// Show the typed-path dialog (screenshot / automation). Skips the native dialog.
     dialog: Option<PathDialog>,
+    /// Run this Rhai script after the character is loaded.
+    script: Option<PathBuf>,
+    /// Function to call in `--script` (or in a loaded plugin of this name).
+    call: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -110,6 +116,8 @@ fn parse_args() -> Result<Args, String> {
             "--open" => a.open = Some(val()?.into()),
             "--save-as" => a.save_as = Some(val()?.into()),
             "--close" => a.close = true,
+            "--script" => a.script = Some(val()?.into()),
+            "--call" => a.call = Some(val()?),
             "--dialog" => {
                 a.dialog = Some(match val()?.as_str() {
                     "open" => PathDialog::Open,
@@ -270,6 +278,10 @@ fn main() -> ExitCode {
     let mut editor = Editor::new(asset, &user_dir);
     editor.load_custom_morphs();
     editor.init_session(&user_dir);
+    let plugin_dir = std::env::var_os("OXY_PLUGINS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_dir.join("plugins"));
+    editor.load_plugins(&plugin_dir);
     if let Some(p) = &args.open {
         if !editor.open_project(p) {
             eprintln!("{}", editor.status);
@@ -311,6 +323,47 @@ fn main() -> ExitCode {
                 s.history.reset(snap.clone());
                 s.saved = snap;
             }
+        }
+    }
+    if let Some(path) = &args.script {
+        let source = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!("{}: {e}", path.display());
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Err(e) =
+            editor.run_script(&source, &path.display().to_string(), args.call.as_deref())
+        {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+        // The script is the starting document when nothing else was opened.
+        if args.open.is_none() {
+            let snap = editor.snapshot();
+            if let Some(s) = editor.session.as_mut() {
+                s.history.reset(snap.clone());
+                s.saved = snap;
+            }
+        }
+    } else if let Some(name) = &args.call {
+        let plugin = editor
+            .plugins
+            .iter()
+            .find(|p| p.actions.iter().any(|a| a.id == *name));
+        let Some(plugin) = plugin else {
+            eprintln!(
+                "no plugin action \"{name}\" in {}",
+                editor.plugin_dir.display()
+            );
+            return ExitCode::FAILURE;
+        };
+        let source = plugin.source.clone();
+        let path = plugin.path.display().to_string();
+        if let Err(e) = editor.run_script(&source, &path, Some(name)) {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
         }
     }
     if let Some(name) = &args.iris {

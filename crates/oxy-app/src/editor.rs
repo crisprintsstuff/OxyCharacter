@@ -67,6 +67,10 @@ pub struct Editor {
     pub eyes_dirty: bool,
     /// Document session (undo, file, autosave); set by `init_session`.
     pub session: Option<crate::document::Session>,
+    /// Folder scanned for `.rhai` plugins. Empty until `load_plugins`.
+    pub plugin_dir: std::path::PathBuf,
+    /// Plugins found in `plugin_dir`.
+    pub plugins: Vec<crate::scripts::PluginFile>,
 }
 
 /// Category tree for a catalog, in the preferred top-level order.
@@ -134,6 +138,8 @@ impl Editor {
             eyes: Vec::new(),
             eyes_dirty: false,
             session: None,
+            plugin_dir: std::path::PathBuf::new(),
+            plugins: Vec::new(),
         }
     }
 

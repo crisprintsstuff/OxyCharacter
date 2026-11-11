@@ -230,7 +230,9 @@ wardrobe tab without mesh thumbnails, and anisotropy on export only.
 ### M8+ — Stretch
 - Photo-to-head fitting (landmark detection → solve morph weights by least squares).
 - Cloth simulation preview (XPBD).
-- Scripting/plugin API (Rhai or WASM).
+- Scripting/plugin API. The first host is Rhai, with the functions in
+  [scripting.md](scripting.md) ([ADR 0011](adr/0011-script-plugins.md)).
+  WASM is not used.
 - USD export.
 
 ---

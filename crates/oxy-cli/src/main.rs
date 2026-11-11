@@ -7,6 +7,7 @@
 //! oxy wardrobe <bundle.oxyb>
 //! oxy send-oxybrush <bundle.oxyb> <out.oxb> [param=value ...]
 //! oxy import-oxybrush <bundle.oxyb> <in.oxb> [--save-morphs DIR]
+//! oxy script <bundle.oxyb> <file.rhai> [--call FUNCTION]
 //! ```
 
 use std::fs::File;
@@ -19,6 +20,7 @@ use std::path::{Path, PathBuf};
 use oxy_fit::{author_builtins, bind, fit, occlusion, transfer_weights, CoverMesh, FitMethod};
 use oxy_io::export::WornMesh;
 use oxy_io::{bundle, export, locate, makehuman, obj, oxb, oxybrush, CharacterAsset};
+use oxy_script::World;
 
 fn load(path: &str) -> Result<CharacterAsset, String> {
     // A bare `makehuman.oxyb` is also accepted from another working directory
@@ -189,9 +191,58 @@ fn run(args: &[String]) -> Result<(), String> {
                 st.meshes, st.bones, st.blendshapes, st.textures, hidden.len()
             );
         }
-        _ => {
-            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+        ["script", bundle, file, rest @ ..] => {
+            let mut call = None;
+            let mut it = rest.iter();
+            while let Some(arg) = it.next() {
+                match *arg {
+                    "--call" => call = Some(*it.next().ok_or("--call needs a function name")?),
+                    other => return Err(format!("unknown script option {other}")),
+                }
+            }
+            run_script(bundle, file, call)?;
         }
+        _ => {
+            return Err("usage: oxy import-makehuman <data dir> <out.oxyb> | info <bundle> | wardrobe <bundle> | script <bundle> <file.rhai> [--call FUNCTION] | export <bundle> <out.glb> [--tpose] [--no-skeleton] [--blendshapes] [--no-textures] [--no-eyes] [--texture-size N] [--morphs DIR] [--wear tee,pants:0.8,hair] [--wardrobe DIR] [--accessory FILE.obj] [param=value ...] | send-oxybrush <bundle> <out.oxb> [param=value ...] | import-oxybrush <bundle> <in.oxb> [--save-morphs DIR]".into())
+        }
+    }
+    Ok(())
+}
+
+/// Run a plugin and print the character values it changed.
+fn run_script(bundle: &str, file: &str, call: Option<&str>) -> Result<(), String> {
+    let asset = load(bundle)?;
+    let mut world = World::from_catalog(
+        &asset.catalog,
+        asset.mesh.base.vertex_count(),
+        asset.rig.as_ref().map(|r| r.bones.len()).unwrap_or(0),
+    );
+    let source = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    if let Some(name) = call {
+        oxy_script::call(&mut world, &source, file, name).map_err(|e| e.to_string())?;
+    } else {
+        oxy_script::run(&mut world, &source, file).map_err(|e| e.to_string())?;
+    }
+    for line in world.log_lines() {
+        println!("log: {line}");
+    }
+    for id in world.changed() {
+        println!("{id}={}", world.get(&id).unwrap_or(0.0));
+    }
+    println!("pose={}", world.pose());
+    if !world.worn().is_empty() {
+        let list: Vec<String> = world
+            .worn()
+            .iter()
+            .map(|item| match item.tightness {
+                Some(t) => format!("{}:{t}", item.id),
+                None => item.id.clone(),
+            })
+            .collect();
+        println!("wearing={}", list.join(","));
+    }
+    for action in world.actions() {
+        println!("action {}\t{}", action.id, action.label);
     }
     Ok(())
 }

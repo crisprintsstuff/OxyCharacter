@@ -1,6 +1,6 @@
 # OxyCharacter roadmap
 
-**Last updated:** 2026-11-09 (release packages) · **Version:** 0.0.1-alpha
+**Last updated:** 2026-11-11 (script plugins) · **Version:** 0.0.1-alpha
 
 Status of each milestone, what's left, and what comes next. Design and
 algorithms behind them are in [PLAN.md](PLAN.md); decisions in [adr/](adr/).
@@ -20,7 +20,7 @@ Legend: ✅ done · 🚧 in progress · ⏳ planned · ❔ needs a decision
 | M5 | Clothing & hair: fitting, weight transfer, hide-under | ✅ |
 | M6 | Face & expressions | ⏳ |
 | M7 | Production export: LODs, atlases, engine presets, FBX | ⏳ |
-| M8+ | Stretch: photo-to-head, cloth preview, scripting, USD | ⏳ |
+| M8+ | Stretch: photo-to-head, cloth preview, USD (script host started) | ⏳ |
 
 ## Done
 
@@ -123,7 +123,10 @@ game skeleton option, FBX, `oxy export` batch; performance pass (GPU morph
 path while dragging, rayon elsewhere; < 16 ms per slider update).
 
 ### M8+ — Stretch ⏳
-Photo-to-head fitting, cloth simulation preview, scripting/plugins, USD.
+Photo-to-head fitting, cloth simulation preview, USD. A first scripting host
+is in place ([docs/scripting.md](scripting.md)): people add `.rhai` plugins
+that call the documented host functions. Photo fitting, cloth and USD are
+still open.
 
 ## Known gaps (cross-cutting)
 

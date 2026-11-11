@@ -25,6 +25,7 @@ crates/
                glTF export (skinned), .oxb read/write, OxyBrush bridge            (no GPU)
   oxy-material UV rasterizer, noise, layer stack, skin/eye bakes, eyeball mesh     (no GPU)
   oxy-project  .oxyc project format, migrations, snapshot undo history           (no GPU)
+  oxy-script   Rhai plugin host (sliders, pose, wardrobe, skin, eyes)             (no GPU)
   oxy-cli      headless tools, binary `oxy`                                       (no GPU)
   oxy-app      Bevy 0.20 + egui editor, binary `oxycharacter`
 assets/        LICENSES.md (ledger); cache/ and generated/ are fetched/built, git-ignored

@@ -6,6 +6,15 @@ development branch. Publishing a version is a git tag; see
 
 ## [Unreleased]
 
+### Added
+- **Script plugins.** A `.rhai` file is a plugin. It can read and write sliders,
+  pose, built-in clothes, skin and eyes, and register named actions with
+  `action`. The editor lists those actions in the Scripts menu (from
+  `plugins/` under the user folder, or `OXY_PLUGINS`). `oxy script` runs a
+  file headlessly. Scripts have no file or network access. The host functions
+  are listed in [docs/scripting.md](docs/scripting.md). See
+  [ADR 0011](docs/adr/0011-script-plugins.md).
+
 ## [0.0.1-alpha] — 2026-11-09
 
 ### Added

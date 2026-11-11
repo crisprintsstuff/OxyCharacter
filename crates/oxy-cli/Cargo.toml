@@ -16,6 +16,7 @@ oxy-mesh.workspace = true
 oxy-morph.workspace = true
 oxy-fit.workspace = true
 oxy-rig.workspace = true
+oxy-script.workspace = true
 
 [lints]
 workspace = true

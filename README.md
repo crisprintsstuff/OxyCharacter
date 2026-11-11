@@ -63,6 +63,18 @@ oxycharacter --dialog open --screenshot dialog.png --frames 40   # typed-path di
 Linux without a GPU: `Xvfb :99 & DISPLAY=:99 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json oxycharacter …`
 (needs `mesa-vulkan-drivers`).
 
+## Scripts
+
+A plugin is a `.rhai` file you write. It can change sliders, pose, the built-in wardrobe, skin and eyes, and it can register a named action. Drop files in the `plugins` folder under the user directory (`OXY_PLUGINS` overrides that folder). The editor's **Scripts** menu lists every `action`. Headless:
+
+```sh
+oxy script assets/generated/makehuman.oxyb plugins/hero.rhai
+oxy script assets/generated/makehuman.oxyb plugins/hero.rhai --call hero
+oxycharacter --script plugins/hero.rhai --call hero
+```
+
+Every host function, the limits, and a full example are in [docs/scripting.md](docs/scripting.md). Scripts cannot read files or use the network.
+
 ## Editor
 
 The window uses the same dark chrome as OxyBrush: a menu and a centered
@@ -258,6 +270,7 @@ oxy import-oxybrush assets/generated/makehuman.oxyb out.oxb --save-morphs user/m
 | `oxy-material` | UV rasterizer, 3D noise, layer stack, skin regions from bone weights, texture encoding, eyeballs + iris |
 | `oxy-project` | `.oxyc` project format (versioned, migrations, base fingerprint), snapshot undo history |
 | `oxy-fit` | Clothing and hair: bind, refit, loose radial-basis fit, weight transfer, hide-under |
+| `oxy-script` | Rhai plugins: sliders, pose, wardrobe, skin and eyes |
 | `oxy-cli` | `oxy` command-line tool |
 | `oxy-app` | Bevy + egui editor (`oxycharacter`) |
 

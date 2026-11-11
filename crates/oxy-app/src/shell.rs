@@ -201,6 +201,7 @@ fn menus(ui: &mut egui::Ui, ed: &mut Editor, state: &mut UiState, orbit: &mut Or
     egui::MenuBar::new().ui(ui, |ui| {
         file_menu(ui, ed);
         edit_menu(ui, ed);
+        scripts_menu(ui, ed);
         mode_menu(ui, state);
         window_menu(ui, state);
         viewport_menu(ui, ed, orbit, height);
@@ -258,6 +259,39 @@ fn file_menu(ui: &mut egui::Ui, ed: &mut Editor) {
         ui.separator();
         if ui.button("Quit").clicked() {
             ed.request(After::Quit);
+        }
+    });
+}
+
+fn scripts_menu(ui: &mut egui::Ui, ed: &mut Editor) {
+    egui::containers::menu::MenuButton::new("Scripts").ui(ui, |ui| {
+        ui.label(format!("Folder: {}", ed.plugin_dir.display()));
+        if ui.button("Reload").clicked() {
+            let dir = ed.plugin_dir.clone();
+            ed.load_plugins(&dir);
+        }
+        ui.separator();
+        let runs: Vec<(String, String, String, String)> = ed
+            .plugins
+            .iter()
+            .flat_map(|p| {
+                let path = p.path.display().to_string();
+                let source = p.source.clone();
+                p.actions
+                    .iter()
+                    .map(move |a| (path.clone(), source.clone(), a.id.clone(), a.label.clone()))
+            })
+            .collect();
+        if runs.is_empty() {
+            ui.label("No actions. Add a .rhai file that calls action().");
+            return;
+        }
+        for (path, source, id, label) in runs {
+            if ui.button(label).clicked() {
+                if let Err(e) = ed.run_script(&source, &path, Some(&id)) {
+                    ed.status = e;
+                }
+            }
         }
     });
 }

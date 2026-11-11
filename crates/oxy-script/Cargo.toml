@@ -1,0 +1,19 @@
+[package]
+name = "oxy-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Rhai scripting host for OxyCharacter plugins"
+
+[dependencies]
+oxy-fit.workspace = true
+oxy-io.workspace = true
+oxy-morph.workspace = true
+oxy-rig.workspace = true
+rhai = { version = "1.21", default-features = false, features = ["std"] }
+thiserror.workspace = true
+
+[lints]
+workspace = true

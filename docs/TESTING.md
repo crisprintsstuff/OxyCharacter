@@ -13,6 +13,10 @@ cargo test --workspace
 
 Unit tests use tiny synthetic meshes and need no assets.
 
+Script plugins are covered by `oxy-script` tests (every host call, a stopped
+loop, a named action) and one editor test that a script is a single undo
+step. The function list is [docs/scripting.md](scripting.md).
+
 ## 2. Real data
 
 ```bash

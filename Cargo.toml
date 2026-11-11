@@ -20,6 +20,7 @@ oxy-io = { path = "crates/oxy-io" }
 oxy-project = { path = "crates/oxy-project" }
 oxy-material = { path = "crates/oxy-material" }
 oxy-fit = { path = "crates/oxy-fit" }
+oxy-script = { path = "crates/oxy-script" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
